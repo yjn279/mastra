@@ -2,7 +2,7 @@ import type { BrandSpec, ClientConfig } from './types';
 
 const defaultFont = {
   family: 'Noto Sans JP',
-  filePath: 'src/mastra/assets/fonts/NotoSansJP-Bold.ttf',
+  filePath: 'src/mastra/assets/fonts/NotoSansJP-Bold.otf',
 };
 
 function brandSpec(overrides: Partial<BrandSpec> = {}): BrandSpec {

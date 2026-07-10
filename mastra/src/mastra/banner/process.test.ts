@@ -1,72 +1,13 @@
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import sharp from 'sharp';
 import { runBannerProcess } from './process';
-import type { ImageGenerator, ImageGeneratorInput } from './generator';
-import type { BrandSpec, ClientConfig, StageFlags } from '../brand/types';
-
-const FONT_PATH = fileURLToPath(new URL('../assets/fonts/NotoSansJP-Bold.otf', import.meta.url));
-
-const CANVAS_WIDTH = 400;
-const CANVAS_HEIGHT = 300;
-const MARGIN = 40;
+import type { StageFlags } from '../brand/types';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, MARGIN, StubGenerator, solidImage, stubResolveClient, testClient } from './test-fixtures';
 
 const WHITE = '#FFFFFF';
 const RED = '#FF0000';
 const GREEN = '#00FF00';
 const BLUE = '#0000FF';
-
-function testBrand(overrides: Partial<BrandSpec> = {}): BrandSpec {
-  const font = { family: 'Noto Sans JP', filePath: FONT_PATH, weight: 700 };
-  return {
-    canvasWidth: CANVAS_WIDTH,
-    canvasHeight: CANVAS_HEIGHT,
-    margin: { top: MARGIN, right: MARGIN, bottom: MARGIN, left: MARGIN },
-    backgroundColor: WHITE,
-    headline: { font, size: 32, color: RED, position: 'top-left' },
-    cta: {
-      font,
-      size: 20,
-      color: WHITE,
-      backgroundColor: BLUE,
-      position: 'bottom-center',
-      paddingX: 16,
-      paddingY: 8,
-    },
-    ...overrides,
-  };
-}
-
-function testClient(stages: StageFlags, brandOverrides: Partial<BrandSpec> = {}): ClientConfig {
-  return {
-    id: 'test-client',
-    name: 'Test Client',
-    stages,
-    brand: testBrand(brandOverrides),
-  };
-}
-
-function stubResolveClient(client: ClientConfig): (id: string) => ClientConfig {
-  return (id: string) => {
-    if (id !== client.id) throw new Error(`Unknown client id: ${id}`);
-    return client;
-  };
-}
-
-function solidImage(width: number, height: number, color: string): Promise<Buffer> {
-  return sharp({ create: { width, height, channels: 3, background: color } })
-    .png()
-    .toBuffer();
-}
-
-class StubGenerator implements ImageGenerator {
-  calls: ImageGeneratorInput[] = [];
-  constructor(private readonly output: Buffer) {}
-  async generate(input: ImageGeneratorInput): Promise<Buffer> {
-    this.calls.push(input);
-    return this.output;
-  }
-}
 
 interface RawImage {
   data: Buffer;
@@ -266,7 +207,7 @@ describe('runBannerProcess', () => {
     ).rejects.toThrow('Unknown client id: does-not-exist');
   });
 
-  it('wires to the real client registry by default (generate-only sample needs no overlay assets)', async () => {
+  it('wires to the real client registry by default', async () => {
     const generatorOutput = Buffer.from('generated-bytes');
     const generator = new StubGenerator(generatorOutput);
 
@@ -275,4 +216,19 @@ describe('runBannerProcess', () => {
     expect(result.client.id).toBe('sample-generate-only');
     expect(result.image.equals(generatorOutput)).toBe(true);
   });
+
+  it.each(['sample-generate-overlay', 'sample-overlay-only'])(
+    'overlays onto the real %s sample using its registered brand font and logo assets',
+    async clientId => {
+      const generatedBase = await solidImage(CANVAS_WIDTH, CANVAS_HEIGHT, GREEN);
+      const generator = new StubGenerator(generatedBase);
+
+      const result = await runBannerProcess({ clientId, copy: 'Sale', cta: 'Shop now' }, { generator });
+
+      expect(result.client.id).toBe(clientId);
+      const metadata = await sharp(result.image).metadata();
+      expect(metadata.width).toBe(result.client.brand.canvasWidth);
+      expect(metadata.height).toBe(result.client.brand.canvasHeight);
+    },
+  );
 });
