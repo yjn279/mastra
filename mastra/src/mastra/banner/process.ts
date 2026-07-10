@@ -39,12 +39,16 @@ export async function runBannerProcess(request: BannerRequest, deps: BannerProce
 
   let image: Buffer;
   if (stages.generate) {
-    image = await deps.generator.generate({
+    const generated = await deps.generator.generate({
       referenceText: request.referenceText,
       materialImage: request.materialImage,
       brand,
       reserveOverlaySpace: stages.overlay,
     });
+    // gpt-image-2 only accepts sizes divisible by 16, so the generator's output dimensions can
+    // drift from the brand's declared canvas size; normalize here so every stage combination
+    // returns an image sized to exactly brand.canvasWidth x brand.canvasHeight.
+    image = await sharp(generated).resize(brand.canvasWidth, brand.canvasHeight, { fit: 'cover' }).png().toBuffer();
   } else if (request.materialImage) {
     image = request.materialImage;
   } else {
