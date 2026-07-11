@@ -1,12 +1,12 @@
 import sharp from 'sharp';
-import type { BannerRequest, BrandSpec, ClientConfig } from '../brand/types';
+import type { BannerRequest, BrandSpec, ClientConfig, ResolveClient } from '../brand/types';
 import { resolveClient as resolveClientDefault } from '../brand/clients';
 import type { ImageGenerator } from './generator';
 import { renderOverlay } from './overlay';
 
 export interface BannerProcessDeps {
   generator: ImageGenerator;
-  resolveClient?: (clientId: string) => ClientConfig;
+  resolveClient?: ResolveClient;
 }
 
 export interface BannerProcessResult {
@@ -51,11 +51,13 @@ export async function runBannerProcess(request: BannerRequest, deps: BannerProce
       image = generated;
     } else {
       // gpt-image-2 only accepts sizes divisible by 16, so the generator's output dimensions can
-      // drift from the brand's declared canvas size; normalize here so every stage combination
-      // returns an image sized to exactly brand.canvasWidth x brand.canvasHeight.
+      // drift from the brand's declared canvas size; normalize here so any combination that runs
+      // the generate stage returns an image sized to exactly brand.canvasWidth x brand.canvasHeight.
       image = await sharp(generated).resize(brand.canvasWidth, brand.canvasHeight, { fit: 'cover' }).png().toBuffer();
     }
   } else if (request.materialImage) {
+    // Neither stage runs: the material image is returned exactly as supplied, with no size or
+    // format normalization — a client registered with both stages off is a deliberate passthrough.
     image = request.materialImage;
   } else {
     image = await brandBackground(brand);

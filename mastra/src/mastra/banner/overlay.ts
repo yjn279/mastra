@@ -11,8 +11,6 @@ export interface OverlayInput {
   brand: BrandSpec;
 }
 
-const FONTS_DIR = resolveAssetPath('fonts');
-
 // Isolates text rendering from whatever fonts happen to be installed on the host: fontconfig
 // (bundled with sharp's libvips) is pointed at only our embedded font directory, so the same
 // input always resolves to the same glyphs regardless of machine.
@@ -28,14 +26,19 @@ function ensureFontconfig(): Promise<void> {
         '<?xml version="1.0"?>',
         '<!DOCTYPE fontconfig SYSTEM "fonts.dtd">',
         '<fontconfig>',
-        `  <dir>${FONTS_DIR}</dir>`,
+        `  <dir>${resolveAssetPath('fonts')}</dir>`,
         `  <cachedir>${cacheDir}</cachedir>`,
         '</fontconfig>',
         '',
       ].join('\n');
       fs.writeFileSync(configPath, config);
       process.env.FONTCONFIG_FILE = configPath;
-    })();
+    })().catch((err) => {
+      // Let a transient failure (e.g. a momentarily unwritable tmpdir) be retried on the next
+      // render instead of permanently failing every future request in this process.
+      fontconfigReady = null;
+      throw err;
+    });
   }
   return fontconfigReady;
 }
@@ -55,10 +58,15 @@ function escapeXml(text: string): string {
     .replace(/'/g, '&apos;');
 }
 
-/** CJK/fullwidth glyphs render roughly square (~1em); Latin glyphs average narrower (~0.6em). */
+/**
+ * CJK/fullwidth glyphs render roughly square (~1em); Latin glyphs average narrower (~0.6em).
+ * Astral-plane characters (emoji and rare CJK extensions, code points above 0xFFFF) also render
+ * roughly square, so they're treated as full-width too.
+ */
 function isFullWidthChar(char: string): boolean {
   const code = char.codePointAt(0) ?? 0;
   return (
+    code > 0xffff ||
     (code >= 0x1100 && code <= 0x115f) || // Hangul Jamo
     (code >= 0x2e80 && code <= 0xa4cf) || // CJK Radicals through Yi
     (code >= 0xac00 && code <= 0xd7a3) || // Hangul Syllables
@@ -84,10 +92,16 @@ function horizontalAnchor(position: Position): 'start' | 'middle' | 'end' {
   return 'middle';
 }
 
+function verticalAnchor(position: Position): 'start' | 'middle' | 'end' {
+  if (position.startsWith('top')) return 'start';
+  if (position.startsWith('bottom')) return 'end';
+  return 'middle';
+}
+
 /**
  * Top-left origin for a box of known size (CTA pill, logo), anchored to `position` and flush
- * with the margin on its anchored edge(s). A box larger than the available margin-constrained
- * area overflows outward from its anchor rather than being repositioned to the opposite edge.
+ * with the margin on its anchored edge(s). A box wider/taller than the margin-constrained area
+ * overflows away from its anchored edge rather than bleeding into the band on that edge.
  */
 function boxOrigin(
   position: Position,
@@ -97,17 +111,31 @@ function boxOrigin(
   boxWidth: number,
   boxHeight: number,
 ): { x: number; y: number } {
+  const minX = margin.left;
+  const flushRightX = canvasWidth - margin.right - boxWidth;
+  const minY = margin.top;
+  const flushBottomY = canvasHeight - margin.bottom - boxHeight;
+
+  // min/max are swapped via Math.min/Math.max below because a box wider/taller than the
+  // margin-constrained area makes flushRightX/flushBottomY fall below minX/minY, which would
+  // otherwise invert the clamp range.
   let x: number;
-  if (position.endsWith('left')) x = margin.left;
-  else if (position.endsWith('right')) x = canvasWidth - margin.right - boxWidth;
-  else x = (canvasWidth - boxWidth) / 2;
+  const hAnchor = horizontalAnchor(position);
+  if (hAnchor === 'start') x = minX;
+  else if (hAnchor === 'end') x = flushRightX;
+  else x = clamp((canvasWidth - boxWidth) / 2, Math.min(minX, flushRightX), Math.max(minX, flushRightX));
 
   let y: number;
-  if (position.startsWith('top')) y = margin.top;
-  else if (position.startsWith('bottom')) y = canvasHeight - margin.bottom - boxHeight;
-  else y = (canvasHeight - boxHeight) / 2;
+  const vAnchor = verticalAnchor(position);
+  if (vAnchor === 'start') y = minY;
+  else if (vAnchor === 'end') y = flushBottomY;
+  else y = clamp((canvasHeight - boxHeight) / 2, Math.min(minY, flushBottomY), Math.max(minY, flushBottomY));
 
   return { x, y };
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
 }
 
 function lineHeightOf(style: TextStyle): number {
@@ -119,13 +147,15 @@ function baselinesFor(position: Position, margin: Margin, canvasHeight: number, 
   const lineHeight = lineHeightOf(style);
   const offsets = Array.from({ length: lineCount }, (_, i) => i * lineHeight);
 
-  if (position.startsWith('top')) {
+  if (verticalAnchor(position) === 'start') {
     const first = margin.top + style.size;
     return offsets.map((offset) => first + offset);
   }
 
-  if (position.startsWith('bottom')) {
-    const last = canvasHeight - margin.bottom;
+  if (verticalAnchor(position) === 'end') {
+    // Descenders (e.g. 'g', 'y', 'p') extend below the baseline, so the last line's baseline
+    // needs headroom above the margin, not flush with it, to keep them out of the margin band.
+    const last = canvasHeight - margin.bottom - style.size * 0.25;
     const first = last - offsets[offsets.length - 1];
     return offsets.map((offset) => first + offset);
   }
@@ -153,20 +183,23 @@ function headlineSvgLayer(copy: string, brand: BrandSpec): string {
   return lines.map((line, i) => textElement(line, x, baselines[i], style)).join('\n');
 }
 
-interface CtaLayout {
-  rect: { x: number; y: number; width: number; height: number };
+interface CtaRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
-function ctaLayout(cta: string, style: CtaStyle, margin: Margin, canvasWidth: number, canvasHeight: number): CtaLayout {
+function ctaLayout(cta: string, style: CtaStyle, margin: Margin, canvasWidth: number, canvasHeight: number): CtaRect {
   const width = estimateTextWidth(cta, style.size) + style.paddingX * 2;
   const height = style.size * 1.2 + style.paddingY * 2;
   const { x, y } = boxOrigin(style.position, margin, canvasWidth, canvasHeight, width, height);
-  return { rect: { x, y, width, height } };
+  return { x, y, width, height };
 }
 
-function ctaSvgLayer(cta: string, brand: BrandSpec): { svg: string; rect: CtaLayout['rect'] } {
+function ctaSvgLayer(cta: string, brand: BrandSpec): { svg: string; rect: CtaRect } {
   const style = brand.cta;
-  const { rect } = ctaLayout(cta, style, brand.margin, brand.canvasWidth, brand.canvasHeight);
+  const rect = ctaLayout(cta, style, brand.margin, brand.canvasWidth, brand.canvasHeight);
   const rx = style.borderRadius ?? 0;
   const rectSvg = `<rect x="${rect.x}" y="${rect.y}" width="${rect.width}" height="${rect.height}" rx="${rx}" fill="${style.backgroundColor}"/>`;
   const baselineY = rect.y + rect.height / 2 + style.size * 0.35;

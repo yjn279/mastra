@@ -66,6 +66,8 @@ export interface ClientConfig {
   brand: BrandSpec;
 }
 
+export type ResolveClient = (clientId: string) => ClientConfig;
+
 export interface BannerRequest {
   clientId: string;
   copy: string;

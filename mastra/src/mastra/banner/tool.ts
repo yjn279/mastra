@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { runBannerProcess } from './process';
 import { GptImage2Generator } from './generator';
 import type { ImageGenerator } from './generator';
-import type { ClientConfig } from '../brand/types';
+import type { ResolveClient } from '../brand/types';
 
 export const generateBannerInputSchema = z.object({
   clientId: z.string().describe('Registered client id used to resolve stage flags and brand settings'),
@@ -19,25 +19,36 @@ export const generateBannerInputSchema = z.object({
 
 export const generateBannerOutputSchema = z.object({
   clientId: z.string(),
-  imageBase64: z.string().describe('Base64-encoded PNG banner result'),
+  imageBase64: z
+    .string()
+    .describe(
+      'Base64-encoded banner result. PNG unless the client has both stages off, in which case the ' +
+        'supplied material image is returned unchanged (its own size and format).',
+    ),
 });
 
 export interface GenerateBannerToolDeps {
   generator?: ImageGenerator;
   /** Overrides client resolution; defaults to the real client registry (see process.ts). Mainly for tests. */
-  resolveClient?: (clientId: string) => ClientConfig;
+  resolveClient?: ResolveClient;
 }
 
-let defaultGenerator: ImageGenerator | undefined;
+let cachedGenerator: ImageGenerator | undefined;
 
-/** Lazily built so importing this module never requires OPENAI_API_KEY (tests inject a stub instead). */
-function resolveDefaultGenerator(): ImageGenerator {
-  if (!defaultGenerator) {
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    defaultGenerator = new GptImage2Generator(client.images);
-  }
-  return defaultGenerator;
-}
+/**
+ * Lazily constructed so importing this module never requires OPENAI_API_KEY (tests inject a stub
+ * generator instead), and the client is only built the first time `.generate()` is actually
+ * called — not merely resolved — so overlay-only clients (whose stage flags never call it) never
+ * need OPENAI_API_KEY either.
+ */
+const defaultGenerator: ImageGenerator = {
+  generate(input) {
+    if (!cachedGenerator) {
+      cachedGenerator = new GptImage2Generator(new OpenAI({ apiKey: process.env.OPENAI_API_KEY }).images);
+    }
+    return cachedGenerator.generate(input);
+  },
+};
 
 /**
  * Thin wrapper around the common banner process (SSOT for the generate/overlay control logic).
@@ -52,7 +63,7 @@ export function createGenerateBannerTool(deps: GenerateBannerToolDeps = {}) {
     inputSchema: generateBannerInputSchema,
     outputSchema: generateBannerOutputSchema,
     execute: async input => {
-      const generator = deps.generator ?? resolveDefaultGenerator();
+      const generator = deps.generator ?? defaultGenerator;
       const materialImage = input.materialImageBase64 ? Buffer.from(input.materialImageBase64, 'base64') : undefined;
 
       const result = await runBannerProcess(
