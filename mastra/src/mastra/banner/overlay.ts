@@ -1,8 +1,8 @@
-import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs';
 import sharp, { type OverlayOptions } from 'sharp';
+import { resolveAssetPath } from '../asset-path';
 import type { BrandSpec, CtaStyle, Margin, Position, TextStyle } from '../brand/types';
 
 export interface OverlayInput {
@@ -11,7 +11,7 @@ export interface OverlayInput {
   brand: BrandSpec;
 }
 
-const FONTS_DIR = fileURLToPath(new URL('../assets/fonts', import.meta.url));
+const FONTS_DIR = resolveAssetPath('fonts');
 
 // Isolates text rendering from whatever fonts happen to be installed on the host: fontconfig
 // (bundled with sharp's libvips) is pointed at only our embedded font directory, so the same

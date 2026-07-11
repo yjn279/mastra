@@ -1,9 +1,9 @@
-import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
+import { resolveAssetPath } from '../asset-path';
 import type { ImageGenerator, ImageGeneratorInput } from './generator';
 import type { BrandSpec, ClientConfig, StageFlags } from '../brand/types';
 
-export const FONT_PATH = fileURLToPath(new URL('../assets/fonts/NotoSansJP-Bold.otf', import.meta.url));
+export const FONT_PATH = resolveAssetPath('fonts/NotoSansJP-Bold.otf');
 
 export const CANVAS_WIDTH = 400;
 export const CANVAS_HEIGHT = 300;

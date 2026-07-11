@@ -27,7 +27,7 @@ Clients are registered in `src/mastra/brand/clients.ts`, each with a `StageFlags
 | `sample-generate-overlay` | on | on |
 | `sample-overlay-only` | off | on |
 
-Brand fonts live under `src/mastra/assets/fonts/` and are embedded via an isolated fontconfig at render time, so output doesn't depend on fonts installed on the host machine.
+Brand fonts and logos live under `src/mastra/public/` (`fonts/`, `logos/`) and are resolved relative to the project root at runtime (`src/mastra/asset-path.ts`), since `mastra dev`'s bundler doesn't preserve source file locations or copy non-JS assets. Fonts are embedded via an isolated fontconfig at render time, so output doesn't depend on fonts installed on the host machine.
 
 ## Running it
 
