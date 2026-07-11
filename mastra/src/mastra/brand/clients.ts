@@ -1,8 +1,13 @@
+import { fileURLToPath } from 'node:url';
 import type { BrandSpec, ClientConfig } from './types';
+
+function assetPath(relativeToMastraSrc: string): string {
+  return fileURLToPath(new URL(`../${relativeToMastraSrc}`, import.meta.url));
+}
 
 const defaultFont = {
   family: 'Noto Sans JP',
-  filePath: 'src/mastra/assets/fonts/NotoSansJP-Bold.otf',
+  filePath: assetPath('assets/fonts/NotoSansJP-Bold.otf'),
 };
 
 function brandSpec(overrides: Partial<BrandSpec> = {}): BrandSpec {
@@ -45,7 +50,7 @@ const clientRegistry: Record<string, ClientConfig> = {
     brand: brandSpec({
       backgroundColor: '#0B1E3F',
       logo: {
-        filePath: 'src/mastra/assets/logos/sample-generate-overlay.png',
+        filePath: assetPath('assets/logos/sample-generate-overlay.png'),
         width: 160,
         height: 48,
         position: 'top-right',
@@ -59,7 +64,7 @@ const clientRegistry: Record<string, ClientConfig> = {
     brand: brandSpec({
       backgroundColor: '#FCEFE3',
       logo: {
-        filePath: 'src/mastra/assets/logos/sample-overlay-only.png',
+        filePath: assetPath('assets/logos/sample-overlay-only.png'),
         width: 120,
         height: 40,
         position: 'bottom-left',

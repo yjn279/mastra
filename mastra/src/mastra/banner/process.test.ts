@@ -2,50 +2,33 @@ import { describe, expect, it } from 'vitest';
 import sharp from 'sharp';
 import { runBannerProcess } from './process';
 import type { StageFlags } from '../brand/types';
-import { CANVAS_WIDTH, CANVAS_HEIGHT, MARGIN, StubGenerator, solidImage, stubResolveClient, testClient } from './test-fixtures';
+import {
+  CANVAS_WIDTH,
+  CANVAS_HEIGHT,
+  MARGIN,
+  StubGenerator,
+  solidImage,
+  stubResolveClient,
+  testClient,
+  toRaw,
+  pixelAt,
+  matchesHex,
+} from './test-fixtures';
 
 const WHITE = '#FFFFFF';
 const RED = '#FF0000';
 const GREEN = '#00FF00';
 const BLUE = '#0000FF';
 
-interface RawImage {
-  data: Buffer;
-  width: number;
-  height: number;
-  channels: number;
-}
-
-async function toRaw(buffer: Buffer): Promise<RawImage> {
-  const { data, info } = await sharp(buffer).raw().toBuffer({ resolveWithObject: true });
-  return { data, width: info.width, height: info.height, channels: info.channels };
-}
-
-function pixelAt(image: RawImage, x: number, y: number): { r: number; g: number; b: number } {
-  const offset = (y * image.width + x) * image.channels;
-  return { r: image.data[offset], g: image.data[offset + 1], b: image.data[offset + 2] };
-}
-
-function hexToRgb(hex: string): { r: number; g: number; b: number } {
-  return { r: parseInt(hex.slice(1, 3), 16), g: parseInt(hex.slice(3, 5), 16), b: parseInt(hex.slice(5, 7), 16) };
-}
-
-function matchesHex(pixel: { r: number; g: number; b: number }, hex: string, tolerance = 10): boolean {
-  const target = hexToRgb(hex);
-  return (
-    Math.abs(pixel.r - target.r) <= tolerance &&
-    Math.abs(pixel.g - target.g) <= tolerance &&
-    Math.abs(pixel.b - target.b) <= tolerance
-  );
-}
+const TOLERANCE = 10;
 
 describe('runBannerProcess', () => {
   describe('generate only (generate: true, overlay: false)', () => {
     const stages: StageFlags = { generate: true, overlay: false };
 
-    it('returns the generator output untouched and requests no reserved overlay space', async () => {
+    it('normalizes the generator output to the brand canvas size and requests no reserved overlay space', async () => {
       const client = testClient(stages);
-      const generatorOutput = Buffer.from('generated-bytes');
+      const generatorOutput = await solidImage(CANVAS_WIDTH, CANVAS_HEIGHT, RED);
       const generator = new StubGenerator(generatorOutput);
 
       const result = await runBannerProcess(
@@ -53,7 +36,10 @@ describe('runBannerProcess', () => {
         { generator, resolveClient: stubResolveClient(client) },
       );
 
-      expect(result.image.equals(generatorOutput)).toBe(true);
+      const image = await toRaw(result.image);
+      expect(image.width).toBe(CANVAS_WIDTH);
+      expect(image.height).toBe(CANVAS_HEIGHT);
+      expect(matchesHex(pixelAt(image, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2), RED, 0)).toBe(true);
       expect(generator.calls).toHaveLength(1);
       expect(generator.calls[0].materialImage).toBeUndefined();
       expect(generator.calls[0].reserveOverlaySpace).toBe(false);
@@ -63,7 +49,7 @@ describe('runBannerProcess', () => {
     it('passes the material image to the generator when supplied', async () => {
       const client = testClient(stages);
       const material = Buffer.from('material-bytes');
-      const generator = new StubGenerator(Buffer.from('generated-bytes'));
+      const generator = new StubGenerator(await solidImage(CANVAS_WIDTH, CANVAS_HEIGHT, GREEN));
 
       await runBannerProcess(
         { clientId: client.id, copy: 'Sale', materialImage: material },
@@ -93,8 +79,8 @@ describe('runBannerProcess', () => {
       const image = await toRaw(result.image);
       expect(image.width).toBe(CANVAS_WIDTH);
       expect(image.height).toBe(CANVAS_HEIGHT);
-      expect(matchesHex(pixelAt(image, MARGIN + 10, MARGIN + 20), RED)).toBe(true); // headline drawn
-      expect(matchesHex(pixelAt(image, CANVAS_WIDTH - MARGIN - 10, MARGIN + 10), GREEN)).toBe(true); // untouched area keeps generated base
+      expect(matchesHex(pixelAt(image, MARGIN + 10, MARGIN + 20), RED, TOLERANCE)).toBe(true); // headline drawn
+      expect(matchesHex(pixelAt(image, CANVAS_WIDTH - MARGIN - 10, MARGIN + 10), GREEN, TOLERANCE)).toBe(true); // untouched area keeps generated base
     });
 
     it('passes the material image to the generator and still overlays the result', async () => {
@@ -112,7 +98,7 @@ describe('runBannerProcess', () => {
       expect(generator.calls[0].reserveOverlaySpace).toBe(true);
 
       const image = await toRaw(result.image);
-      expect(matchesHex(pixelAt(image, MARGIN + 10, MARGIN + 20), RED)).toBe(true);
+      expect(matchesHex(pixelAt(image, MARGIN + 10, MARGIN + 20), RED, TOLERANCE)).toBe(true);
     });
   });
 
@@ -131,8 +117,8 @@ describe('runBannerProcess', () => {
 
       expect(generator.calls).toHaveLength(0);
       const image = await toRaw(result.image);
-      expect(matchesHex(pixelAt(image, MARGIN + 10, MARGIN + 20), RED)).toBe(true);
-      expect(matchesHex(pixelAt(image, CANVAS_WIDTH - MARGIN - 10, MARGIN + 10), GREEN)).toBe(true);
+      expect(matchesHex(pixelAt(image, MARGIN + 10, MARGIN + 20), RED, TOLERANCE)).toBe(true);
+      expect(matchesHex(pixelAt(image, CANVAS_WIDTH - MARGIN - 10, MARGIN + 10), GREEN, TOLERANCE)).toBe(true);
     });
 
     it('falls back to the brand background when there is no material image', async () => {
@@ -148,8 +134,8 @@ describe('runBannerProcess', () => {
       const image = await toRaw(result.image);
       expect(image.width).toBe(CANVAS_WIDTH);
       expect(image.height).toBe(CANVAS_HEIGHT);
-      expect(matchesHex(pixelAt(image, MARGIN + 10, MARGIN + 20), RED)).toBe(true); // headline drawn
-      expect(matchesHex(pixelAt(image, CANVAS_WIDTH - MARGIN - 10, MARGIN + 10), BLUE)).toBe(true); // brand background shows through
+      expect(matchesHex(pixelAt(image, MARGIN + 10, MARGIN + 20), RED, TOLERANCE)).toBe(true); // headline drawn
+      expect(matchesHex(pixelAt(image, CANVAS_WIDTH - MARGIN - 10, MARGIN + 10), BLUE, TOLERANCE)).toBe(true); // brand background shows through
     });
   });
 
@@ -208,13 +194,14 @@ describe('runBannerProcess', () => {
   });
 
   it('wires to the real client registry by default', async () => {
-    const generatorOutput = Buffer.from('generated-bytes');
-    const generator = new StubGenerator(generatorOutput);
+    const generator = new StubGenerator(await solidImage(CANVAS_WIDTH, CANVAS_HEIGHT, RED));
 
     const result = await runBannerProcess({ clientId: 'sample-generate-only', copy: 'Sale' }, { generator });
 
     expect(result.client.id).toBe('sample-generate-only');
-    expect(result.image.equals(generatorOutput)).toBe(true);
+    const metadata = await sharp(result.image).metadata();
+    expect(metadata.width).toBe(result.client.brand.canvasWidth);
+    expect(metadata.height).toBe(result.client.brand.canvasHeight);
   });
 
   it.each(['sample-generate-overlay', 'sample-overlay-only'])(

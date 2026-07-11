@@ -24,7 +24,7 @@ export const generateBannerOutputSchema = z.object({
 
 export interface GenerateBannerToolDeps {
   generator?: ImageGenerator;
-  /** Overrides client resolution; defaults to the real client registry (see M5/process.ts). Mainly for tests. */
+  /** Overrides client resolution; defaults to the real client registry (see process.ts). Mainly for tests. */
   resolveClient?: (clientId: string) => ClientConfig;
 }
 
@@ -40,7 +40,7 @@ function resolveDefaultGenerator(): ImageGenerator {
 }
 
 /**
- * Thin wrapper around the M5 common process (SSOT for the generate/overlay control logic).
+ * Thin wrapper around the common banner process (SSOT for the generate/overlay control logic).
  * `deps.generator` lets tests and the workflow inject a stub instead of the live gpt-image-2 adapter.
  */
 export function createGenerateBannerTool(deps: GenerateBannerToolDeps = {}) {

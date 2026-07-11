@@ -1,28 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { GptImagesClient, ImageGeneratorInput } from './generator';
 import { GptImage2Generator } from './generator';
-import type { BrandSpec } from '../brand/types';
-
-function testBrand(overrides: Partial<BrandSpec> = {}): BrandSpec {
-  const font = { family: 'Test Sans', filePath: '/fonts/test.ttf' };
-  return {
-    canvasWidth: 1080,
-    canvasHeight: 1080,
-    margin: { top: 40, right: 32, bottom: 48, left: 24 },
-    backgroundColor: '#FFFFFF',
-    headline: { font, size: 48, color: '#111111', position: 'top-left' },
-    cta: {
-      font,
-      size: 24,
-      color: '#FFFFFF',
-      backgroundColor: '#000000',
-      position: 'bottom-right',
-      paddingX: 16,
-      paddingY: 8,
-    },
-    ...overrides,
-  };
-}
+import { testBrand } from './test-fixtures';
 
 function stubResponse(bytes: string) {
   return { data: [{ b64_json: Buffer.from(bytes).toString('base64') }] };
@@ -89,7 +68,22 @@ describe('GptImage2Generator', () => {
     const params = vi.mocked(client.generate).mock.calls[0][0];
     expect(params.prompt).toContain(brand.headline.position);
     expect(params.prompt).toContain(brand.cta.position);
-    expect(params.prompt).toContain(`${brand.margin.top}px from the top`);
+    // canvasWidth (400) is already a multiple of 16, so the right/left margins are unscaled;
+    // top/bottom are scaled to canvasHeight's (300) rounded-to-16 size and asserted separately.
+    expect(params.prompt).toContain(`${brand.margin.right}px from the right`);
+  });
+
+  it('scales reserved-space margins to the size actually requested from gpt-image-2', async () => {
+    const client = createClient();
+    const generator = new GptImage2Generator(client);
+    const brand = testBrand({ canvasHeight: 300 });
+
+    await generator.generate({ brand, reserveOverlaySpace: true });
+
+    const params = vi.mocked(client.generate).mock.calls[0][0];
+    // canvasHeight 300 rounds up to 304 for the actual request; margins scale with it so the
+    // reserved space still lines up with the frame gpt-image-2 renders, not the declared canvas.
+    expect(params.prompt).toContain(`${Math.round((brand.margin.top * 304) / 300)}px from the top`);
   });
 
   it('does not request reserved overlay space when no overlay stage follows', async () => {

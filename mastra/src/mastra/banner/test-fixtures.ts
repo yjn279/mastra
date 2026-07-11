@@ -47,6 +47,36 @@ export function solidImage(width: number, height: number, color: string): Promis
     .toBuffer();
 }
 
+export interface RawImage {
+  data: Buffer;
+  width: number;
+  height: number;
+  channels: number;
+}
+
+export async function toRaw(buffer: Buffer): Promise<RawImage> {
+  const { data, info } = await sharp(buffer).raw().toBuffer({ resolveWithObject: true });
+  return { data, width: info.width, height: info.height, channels: info.channels };
+}
+
+export function pixelAt(image: RawImage, x: number, y: number): { r: number; g: number; b: number } {
+  const offset = (y * image.width + x) * image.channels;
+  return { r: image.data[offset], g: image.data[offset + 1], b: image.data[offset + 2] };
+}
+
+export function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  return { r: parseInt(hex.slice(1, 3), 16), g: parseInt(hex.slice(3, 5), 16), b: parseInt(hex.slice(5, 7), 16) };
+}
+
+export function matchesHex(pixel: { r: number; g: number; b: number }, hex: string, tolerance: number): boolean {
+  const target = hexToRgb(hex);
+  return (
+    Math.abs(pixel.r - target.r) <= tolerance &&
+    Math.abs(pixel.g - target.g) <= tolerance &&
+    Math.abs(pixel.b - target.b) <= tolerance
+  );
+}
+
 export class StubGenerator implements ImageGenerator {
   calls: ImageGeneratorInput[] = [];
   constructor(private readonly output: Buffer) {}

@@ -55,9 +55,27 @@ function escapeXml(text: string): string {
     .replace(/'/g, '&apos;');
 }
 
+/** CJK/fullwidth glyphs render roughly square (~1em); Latin glyphs average narrower (~0.6em). */
+function isFullWidthChar(char: string): boolean {
+  const code = char.codePointAt(0) ?? 0;
+  return (
+    (code >= 0x1100 && code <= 0x115f) || // Hangul Jamo
+    (code >= 0x2e80 && code <= 0xa4cf) || // CJK Radicals through Yi
+    (code >= 0xac00 && code <= 0xd7a3) || // Hangul Syllables
+    (code >= 0xf900 && code <= 0xfaff) || // CJK Compatibility Ideographs
+    (code >= 0xff00 && code <= 0xff60) || // Fullwidth Forms
+    (code >= 0xffe0 && code <= 0xffe6)
+  );
+}
+
 function estimateTextWidth(text: string, fontSize: number): number {
-  const AVG_CHAR_WIDTH_RATIO = 0.6;
-  return text.length * fontSize * AVG_CHAR_WIDTH_RATIO;
+  const NARROW_CHAR_WIDTH_RATIO = 0.6;
+  const FULL_WIDTH_CHAR_WIDTH_RATIO = 1.0;
+  let width = 0;
+  for (const char of text) {
+    width += fontSize * (isFullWidthChar(char) ? FULL_WIDTH_CHAR_WIDTH_RATIO : NARROW_CHAR_WIDTH_RATIO);
+  }
+  return width;
 }
 
 function horizontalAnchor(position: Position): 'start' | 'middle' | 'end' {
@@ -66,13 +84,11 @@ function horizontalAnchor(position: Position): 'start' | 'middle' | 'end' {
   return 'middle';
 }
 
-function anchorX(position: Position, margin: Margin, canvasWidth: number): number {
-  if (position.endsWith('left')) return margin.left;
-  if (position.endsWith('right')) return canvasWidth - margin.right;
-  return canvasWidth / 2;
-}
-
-/** Top-left origin for a box of known size (CTA pill, logo) that must stay within the margin. */
+/**
+ * Top-left origin for a box of known size (CTA pill, logo), anchored to `position` and flush
+ * with the margin on its anchored edge(s). A box larger than the available margin-constrained
+ * area overflows outward from its anchor rather than being repositioned to the opposite edge.
+ */
 function boxOrigin(
   position: Position,
   margin: Margin,
@@ -81,26 +97,17 @@ function boxOrigin(
   boxWidth: number,
   boxHeight: number,
 ): { x: number; y: number } {
-  const minX = margin.left;
-  const maxX = Math.max(minX, canvasWidth - margin.right - boxWidth);
-  const minY = margin.top;
-  const maxY = Math.max(minY, canvasHeight - margin.bottom - boxHeight);
-
   let x: number;
-  if (position.endsWith('left')) x = minX;
-  else if (position.endsWith('right')) x = maxX;
+  if (position.endsWith('left')) x = margin.left;
+  else if (position.endsWith('right')) x = canvasWidth - margin.right - boxWidth;
   else x = (canvasWidth - boxWidth) / 2;
 
   let y: number;
-  if (position.startsWith('top')) y = minY;
-  else if (position.startsWith('bottom')) y = maxY;
+  if (position.startsWith('top')) y = margin.top;
+  else if (position.startsWith('bottom')) y = canvasHeight - margin.bottom - boxHeight;
   else y = (canvasHeight - boxHeight) / 2;
 
-  return { x: clamp(x, minX, maxX), y: clamp(y, minY, maxY) };
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
+  return { x, y };
 }
 
 function lineHeightOf(style: TextStyle): number {
@@ -140,7 +147,7 @@ function textElement(text: string, x: number, y: number, style: TextStyle): stri
 
 function headlineSvgLayer(copy: string, brand: BrandSpec): string {
   const style = brand.headline;
-  const x = anchorX(style.position, brand.margin, brand.canvasWidth);
+  const { x } = boxOrigin(style.position, brand.margin, brand.canvasWidth, brand.canvasHeight, 0, 0);
   const lines = copy.split('\n');
   const baselines = baselinesFor(style.position, brand.margin, brand.canvasHeight, style, lines.length);
   return lines.map((line, i) => textElement(line, x, baselines[i], style)).join('\n');
@@ -148,18 +155,18 @@ function headlineSvgLayer(copy: string, brand: BrandSpec): string {
 
 interface CtaLayout {
   rect: { x: number; y: number; width: number; height: number };
-  style: CtaStyle;
 }
 
 function ctaLayout(cta: string, style: CtaStyle, margin: Margin, canvasWidth: number, canvasHeight: number): CtaLayout {
   const width = estimateTextWidth(cta, style.size) + style.paddingX * 2;
   const height = style.size * 1.2 + style.paddingY * 2;
   const { x, y } = boxOrigin(style.position, margin, canvasWidth, canvasHeight, width, height);
-  return { rect: { x, y, width, height }, style };
+  return { rect: { x, y, width, height } };
 }
 
 function ctaSvgLayer(cta: string, brand: BrandSpec): { svg: string; rect: CtaLayout['rect'] } {
-  const { rect, style } = ctaLayout(cta, brand.cta, brand.margin, brand.canvasWidth, brand.canvasHeight);
+  const style = brand.cta;
+  const { rect } = ctaLayout(cta, style, brand.margin, brand.canvasWidth, brand.canvasHeight);
   const rx = style.borderRadius ?? 0;
   const rectSvg = `<rect x="${rect.x}" y="${rect.y}" width="${rect.width}" height="${rect.height}" rx="${rx}" fill="${style.backgroundColor}"/>`;
   const baselineY = rect.y + rect.height / 2 + style.size * 0.35;
@@ -190,16 +197,13 @@ export async function renderOverlay(base: Buffer, input: OverlayInput): Promise<
   requireBrandFonts(brand, Boolean(cta));
   await ensureFontconfig();
 
-  const resizedBase = await sharp(base).resize(width, height, { fit: 'cover' }).png().toBuffer();
-
   const textLayers = [headlineSvgLayer(copy, brand)];
   if (cta) {
     textLayers.push(ctaSvgLayer(cta, brand).svg);
   }
   const textSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">${textLayers.join('\n')}</svg>`;
-  const textLayerPng = await sharp(Buffer.from(textSvg)).png().toBuffer();
 
-  const composites: OverlayOptions[] = [{ input: textLayerPng, left: 0, top: 0 }];
+  const composites: OverlayOptions[] = [{ input: Buffer.from(textSvg), left: 0, top: 0 }];
 
   if (brand.logo) {
     const logoBuffer = await sharp(brand.logo.filePath).resize(brand.logo.width, brand.logo.height, { fit: 'contain' }).png().toBuffer();
@@ -207,5 +211,5 @@ export async function renderOverlay(base: Buffer, input: OverlayInput): Promise<
     composites.push({ input: logoBuffer, left: Math.round(x), top: Math.round(y) });
   }
 
-  return sharp(resizedBase).composite(composites).png().toBuffer();
+  return sharp(base).resize(width, height, { fit: 'cover' }).composite(composites).png().toBuffer();
 }

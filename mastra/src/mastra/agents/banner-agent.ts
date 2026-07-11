@@ -3,7 +3,7 @@ import { Memory } from '@mastra/memory';
 import { generateBannerTool } from '../banner/tool';
 
 /**
- * Studio-facing shell around the generate-banner tool (which itself wraps the M5 common
+ * Studio-facing shell around the generate-banner tool (which itself wraps the common banner
  * process, the single control point for the generate/overlay gating). This agent owns no
  * banner logic of its own: it only resolves clientId/copy/cta/material image from the
  * conversation and calls the tool, so the process stays defined in exactly one place.

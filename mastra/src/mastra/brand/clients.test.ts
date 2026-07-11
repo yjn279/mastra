@@ -1,10 +1,6 @@
 import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { clients, resolveClient } from './clients';
-
-const PROJECT_ROOT = fileURLToPath(new URL('../../..', import.meta.url));
 
 describe('resolveClient', () => {
   it('resolves every registered client by id', () => {
@@ -46,10 +42,10 @@ describe('resolveClient', () => {
   it('points every referenced font and logo asset at a file that actually exists', () => {
     for (const client of clients) {
       const { brand } = client;
-      expect(fs.existsSync(path.join(PROJECT_ROOT, brand.headline.font.filePath))).toBe(true);
-      expect(fs.existsSync(path.join(PROJECT_ROOT, brand.cta.font.filePath))).toBe(true);
+      expect(fs.existsSync(brand.headline.font.filePath)).toBe(true);
+      expect(fs.existsSync(brand.cta.font.filePath)).toBe(true);
       if (brand.logo) {
-        expect(fs.existsSync(path.join(PROJECT_ROOT, brand.logo.filePath))).toBe(true);
+        expect(fs.existsSync(brand.logo.filePath)).toBe(true);
       }
     }
   });

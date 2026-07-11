@@ -4,7 +4,7 @@ import type { GenerateBannerToolDeps } from './tool';
 
 /**
  * Studio-visible wrapper around the `generate-banner` tool, which is itself a thin wrapper
- * around the M5 common process (the single control point for the generate/overlay gating and
+ * around the common banner process (the single control point for the generate/overlay gating and
  * input resolution). The process is not split into separate workflow steps here because doing
  * so would require duplicating that gating logic outside its one source of truth.
  */

@@ -27,17 +27,18 @@ describe('bannerWorkflow', () => {
     return wfRun.start({ inputData: { clientId: client.id, copy: 'Sale', ...inputData } });
   }
 
-  it('generate only: returns the generator output untouched, base64-encoded', async () => {
+  it('generate only: normalizes the generator output to the brand canvas size, base64-encoded', async () => {
     const client = testClient({ generate: true, overlay: false });
-    const generatorOutput = Buffer.from('generated-bytes');
-    const generator = new StubGenerator(generatorOutput);
+    const generator = new StubGenerator(await solidImage(CANVAS_WIDTH, CANVAS_HEIGHT, '#FF0000'));
 
     const result = await run(client, generator, { referenceText: 'coffee shop' });
 
     expect(result.status).toBe('success');
     if (result.status !== 'success') return;
     expect(result.result.clientId).toBe(client.id);
-    expect(Buffer.from(result.result.imageBase64, 'base64').equals(generatorOutput)).toBe(true);
+    const image = await sharp(Buffer.from(result.result.imageBase64, 'base64')).raw().toBuffer({ resolveWithObject: true });
+    expect(image.info.width).toBe(CANVAS_WIDTH);
+    expect(image.info.height).toBe(CANVAS_HEIGHT);
     expect(generator.calls[0].reserveOverlaySpace).toBe(false);
   });
 
@@ -105,14 +106,15 @@ describe('generateBannerTool', () => {
   });
 
   it('wires to the real client registry by default', async () => {
-    const generatorOutput = Buffer.from('generated-bytes');
-    const generator = new StubGenerator(generatorOutput);
+    const generator = new StubGenerator(await solidImage(CANVAS_WIDTH, CANVAS_HEIGHT, '#FF0000'));
     const tool = createGenerateBannerTool({ generator });
 
     const output = await callTool(tool, { clientId: 'sample-generate-only', copy: 'Sale' });
 
     expect(output.clientId).toBe('sample-generate-only');
-    expect(Buffer.from(output.imageBase64, 'base64').equals(generatorOutput)).toBe(true);
+    const metadata = await sharp(Buffer.from(output.imageBase64, 'base64')).metadata();
+    expect(metadata.width).toBeGreaterThan(0);
+    expect(metadata.height).toBeGreaterThan(0);
   });
 
   it('exports a ready-to-register default tool instance', () => {

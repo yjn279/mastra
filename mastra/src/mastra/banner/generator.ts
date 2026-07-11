@@ -27,19 +27,23 @@ function roundToMultipleOf16(value: number): number {
   return Math.max(16, Math.round(value / 16) * 16);
 }
 
-function sizeOf(brand: BrandSpec): string {
-  return `${roundToMultipleOf16(brand.canvasWidth)}x${roundToMultipleOf16(brand.canvasHeight)}`;
+function roundedSizeOf(brand: BrandSpec): { width: number; height: number } {
+  return { width: roundToMultipleOf16(brand.canvasWidth), height: roundToMultipleOf16(brand.canvasHeight) };
 }
 
-function buildPrompt(input: ImageGeneratorInput): string {
+function buildPrompt(input: ImageGeneratorInput, roundedSize: { width: number; height: number }): string {
   const subject = input.referenceText?.trim() || 'A clean marketing banner background matching the brand mood.';
   const instructions = [subject, 'Do not render any text, letters, numbers, or typography anywhere in the image.'];
 
   if (input.reserveOverlaySpace) {
-    const { margin, headline, cta } = input.brand;
+    const { margin, headline, cta, canvasWidth, canvasHeight } = input.brand;
+    // gpt-image-2 renders at roundedSize's 16-rounded dimensions, not the brand's declared canvas
+    // size, so margins are scaled to that actual frame to keep the reserved space accurate.
+    const scaleX = roundedSize.width / canvasWidth;
+    const scaleY = roundedSize.height / canvasHeight;
     instructions.push(
       `Leave a clear, uncluttered background near the ${headline.position} and ${cta.position} of the frame so headline text and a call-to-action button can be overlaid there afterward.`,
-      `Keep at least ${margin.top}px from the top, ${margin.right}px from the right, ${margin.bottom}px from the bottom, and ${margin.left}px from the left free of busy detail.`,
+      `Keep at least ${Math.round(margin.top * scaleY)}px from the top, ${Math.round(margin.right * scaleX)}px from the right, ${Math.round(margin.bottom * scaleY)}px from the bottom, and ${Math.round(margin.left * scaleX)}px from the left free of busy detail.`,
     );
   }
 
@@ -59,8 +63,9 @@ export class GptImage2Generator implements ImageGenerator {
   constructor(private readonly client: GptImagesClient) {}
 
   async generate(input: ImageGeneratorInput): Promise<Buffer> {
-    const prompt = buildPrompt(input);
-    const size = sizeOf(input.brand);
+    const roundedSize = roundedSizeOf(input.brand);
+    const prompt = buildPrompt(input, roundedSize);
+    const size = `${roundedSize.width}x${roundedSize.height}`;
 
     if (input.materialImage) {
       const response = await this.client.edit({
