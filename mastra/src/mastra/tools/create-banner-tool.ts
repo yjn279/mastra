@@ -1,6 +1,7 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { bannerWorkflow } from '../workflows/banner-workflow';
+import { putBanner } from '../lib/banner-store';
 import { listClients } from '../clients';
 
 const clientIds = listClients().map((c) => c.id);
@@ -50,7 +51,8 @@ export const createBannerTool = createTool({
   }),
   outputSchema: z.object({
     clientId: z.string(),
-    imageBase64: z.string(),
+    /** Relative URL of the rendered PNG, served by the /banners/:id route. */
+    imageUrl: z.string(),
   }),
   execute: async (input, context) => {
     const materialImageBase64 = extractMaterialImage((context as { agent?: { messages?: unknown } })?.agent?.messages);
@@ -61,13 +63,7 @@ export const createBannerTool = createTool({
       throw new Error(`banner workflow did not succeed: ${result.status}`);
     }
 
-    return { clientId: input.clientId, imageBase64: result.result.imageBase64 };
+    const id = putBanner(Buffer.from(result.result.imageBase64, 'base64'));
+    return { clientId: input.clientId, imageUrl: `/banners/${id}.png` };
   },
-  toModelOutput: (output) => ({
-    type: 'content',
-    value: [
-      { type: 'text', text: `Banner for ${output.clientId}.` },
-      { type: 'image-url', url: `data:image/png;base64,${output.imageBase64}` },
-    ],
-  }),
 });
