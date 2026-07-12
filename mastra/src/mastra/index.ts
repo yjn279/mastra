@@ -5,8 +5,12 @@ import { LibSQLStore } from '@mastra/libsql';
 import { DuckDBStore } from "@mastra/duckdb";
 import { MastraCompositeStore } from '@mastra/core/storage';
 import { Observability, MastraStorageExporter, MastraPlatformExporter, SensitiveDataFilter } from '@mastra/observability';
+import { bannerAgent } from './agents/banner-agent';
+import { bannerWorkflow } from './workflows/banner-workflow';
 
 export const mastra = new Mastra({
+  agents: { bannerAgent },
+  workflows: { bannerWorkflow },
   storage: new MastraCompositeStore({
     id: 'composite-storage',
     default: new LibSQLStore({
