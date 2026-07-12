@@ -1,12 +1,8 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
-import { writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { bannerWorkflow } from '../workflows/banner-workflow';
 import { listClients } from '../clients';
 
-const outputDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'assets', 'output');
 const clientIds = listClients().map((c) => c.id);
 
 /** Best-effort conversion of an attachment payload to raw base64. */
@@ -54,7 +50,6 @@ export const createBannerTool = createTool({
   }),
   outputSchema: z.object({
     clientId: z.string(),
-    path: z.string(),
     imageBase64: z.string(),
   }),
   execute: async (input, context) => {
@@ -66,15 +61,12 @@ export const createBannerTool = createTool({
       throw new Error(`banner workflow did not succeed: ${result.status}`);
     }
 
-    const { imageBase64 } = result.result;
-    const path = join(outputDir, `${input.clientId}-${run.runId}.png`);
-    writeFileSync(path, Buffer.from(imageBase64, 'base64'));
-    return { clientId: input.clientId, path, imageBase64 };
+    return { clientId: input.clientId, imageBase64: result.result.imageBase64 };
   },
   toModelOutput: (output) => ({
     type: 'content',
     value: [
-      { type: 'text', text: `Banner for ${output.clientId} saved to ${output.path}.` },
+      { type: 'text', text: `Banner for ${output.clientId}.` },
       { type: 'image-url', url: `data:image/png;base64,${output.imageBase64}` },
     ],
   }),

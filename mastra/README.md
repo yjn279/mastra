@@ -35,7 +35,7 @@ src/mastra/
   lib/overlay-renderer.ts        @napi-rs/canvas による決定的描画エンジン
   lib/fonts.ts                   フォント登録
   clients/                       クライアント設定レジストリ + ブランド仕様（zod）
-  assets/fonts, assets/logos     ブランドフォント / ロゴ。assets/output に結果 PNG
+  assets/fonts, assets/logos     ブランドフォント / ロゴ
 ```
 
 ## クライアント設定
