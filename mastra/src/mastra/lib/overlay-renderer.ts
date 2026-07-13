@@ -77,17 +77,6 @@ export function sanitizeImage(buf: Buffer): Buffer {
   return Buffer.concat(chunks);
 }
 
-function roundRectPath(ctx: SKRSContext2D, x: number, y: number, w: number, h: number, r: number): void {
-  const rr = Math.min(r, w / 2, h / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + rr, y);
-  ctx.arcTo(x + w, y, x + w, y + h, rr);
-  ctx.arcTo(x + w, y + h, x, y + h, rr);
-  ctx.arcTo(x, y + h, x, y, rr);
-  ctx.arcTo(x, y, x + w, y, rr);
-  ctx.closePath();
-}
-
 /** Draw an image scaled to cover a region (center-cropped, clipped to the region). */
 function drawImageCover(ctx: SKRSContext2D, img: Image, region: Region): void {
   ctx.save();
@@ -138,7 +127,8 @@ function drawCta(ctx: SKRSContext2D, region: Region, align: Layout['align'], sty
   const boxX = align === 'center' ? region.x + (region.width - boxW) / 2 : region.x;
   const boxY = region.y + Math.max(0, (region.height - boxH) / 2);
   ctx.fillStyle = style.background;
-  roundRectPath(ctx, boxX, boxY, boxW, boxH, style.radius);
+  ctx.beginPath();
+  ctx.roundRect(boxX, boxY, boxW, boxH, style.radius);
   ctx.fill();
   ctx.fillStyle = style.color;
   ctx.textBaseline = 'middle';

@@ -66,6 +66,7 @@ const brand: BrandSpec = {
 // Copy overlaid on the right; a CTA region below it.
 const layout: Layout = {
   name: 'test',
+  description: 'test layout',
   width: 400,
   height: 200,
   imageSize: '1536x1024',

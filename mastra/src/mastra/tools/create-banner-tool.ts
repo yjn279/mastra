@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { bannerWorkflow } from '../workflows/banner-workflow';
 import { putBanner } from '../lib/banner-store';
 import { listClients } from '../clients';
-import { listLayouts } from '../layouts';
+import { listLayouts, describeLayouts } from '../layouts';
 
 const clientIds = listClients().map((c) => c.id);
 const layoutNames = listLayouts().map((l) => l.name);
@@ -47,17 +47,12 @@ export const createBannerTool = createTool({
   description: `Produce a brand-compliant marketing banner for a client (${clientIds.join(', ')}) in a chosen layout (${layoutNames.join(', ')}). Provide the clientId and layout; when the client overlays text, also provide copy and cta. An image attached by the user is used automatically as material.`,
   inputSchema: z.object({
     clientId: z.string().describe(`client id, one of: ${clientIds.join(', ')}`),
-    layout: z
-      .string()
-      .describe(
-        `layout, one of: ${layoutNames.join(', ')}. Use banner-image-left / banner-image-right for a wide product banner (product on that side, copy on the other); use kv for a square key visual (copy on top, product below).`,
-      ),
+    layout: z.string().describe(`layout, one of:\n${describeLayouts()}`),
     copy: z.string().optional().describe('headline copy to overlay (when the client overlays text)'),
     cta: z.string().optional().describe('CTA button label (when the client overlays text)'),
     referenceText: z.string().optional().describe('optional style hints for image generation'),
   }),
   outputSchema: z.object({
-    clientId: z.string(),
     /** Relative URL of the rendered PNG, served by the /banners/:id route. */
     imageUrl: z.string(),
   }),
@@ -71,6 +66,6 @@ export const createBannerTool = createTool({
     }
 
     const id = putBanner(Buffer.from(result.result.imageBase64, 'base64'));
-    return { clientId: input.clientId, imageUrl: `/banners/${id}.png` };
+    return { imageUrl: `/banners/${id}.png` };
   },
 });

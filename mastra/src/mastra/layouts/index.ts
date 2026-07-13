@@ -7,6 +7,7 @@ import { defineLayout, type Layout } from './types';
  */
 const bannerImageLeft = defineLayout({
   name: 'banner-image-left',
+  description: 'wide product banner: product on the LEFT, copy overlaid on the clean right side',
   width: 1536,
   height: 1024,
   imageSize: '1536x1024',
@@ -17,6 +18,7 @@ const bannerImageLeft = defineLayout({
 
 const bannerImageRight = defineLayout({
   name: 'banner-image-right',
+  description: 'wide product banner: product on the RIGHT, copy overlaid on the clean left side',
   width: 1536,
   height: 1024,
   imageSize: '1536x1024',
@@ -28,6 +30,7 @@ const bannerImageRight = defineLayout({
 /** Square key visual (1024×1024): copy overlaid on top, product in the middle, CTA overlaid below it. */
 const kv = defineLayout({
   name: 'kv',
+  description: 'square key visual: copy overlaid on top, product in the middle, CTA overlaid below',
   width: 1024,
   height: 1024,
   imageSize: '1024x1024',
@@ -54,6 +57,13 @@ export function getLayout(name: string): Layout {
 
 export function listLayouts(): Layout[] {
   return Object.values(registry);
+}
+
+/** One guidance line per layout for the agent/tool, with CTA rule derived from `ctaRegion`. */
+export function describeLayouts(): string {
+  return listLayouts()
+    .map((l) => `- ${l.name} — ${l.description}. ${l.ctaRegion ? 'Provide cta.' : 'No CTA; do not pass cta.'}`)
+    .join('\n');
 }
 
 export type { Layout, Region } from './types';

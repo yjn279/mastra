@@ -17,6 +17,8 @@ export const regionSchema = z.object({
  */
 export const layoutSchema = z.object({
   name: z.string(),
+  /** Agent/tool-facing guidance: what the pattern is and when to pick it. */
+  description: z.string(),
   width: z.number().positive(),
   height: z.number().positive(),
   /** gpt-image-2 size for the full-canvas image (matches the canvas aspect). */

@@ -16,15 +16,13 @@ export const bannerInputSchema = z.object({
   materialImageBase64: z.string().optional(),
 });
 
-/** Data passed from the generate step to the overlay step. */
-export const flowSchema = z.object({
-  clientId: z.string(),
-  layout: z.string(),
-  copy: z.string().optional(),
-  cta: z.string().optional(),
-  /** Product image for the layout's image region (generated or material), or null. */
-  imageBase64: z.string().nullable(),
-});
+/** Data passed from the generate step to the overlay step: the layout inputs plus the resolved image. */
+export const flowSchema = bannerInputSchema
+  .omit({ referenceText: true, materialImageBase64: true })
+  .extend({
+    /** Full-canvas image (generated or material), or null to leave the brand background. */
+    imageBase64: z.string().nullable(),
+  });
 
 /**
  * Build the model prompt. The model paints a product photo only — never text.

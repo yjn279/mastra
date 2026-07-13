@@ -4,7 +4,6 @@
  * most recent entries; the server process is the single source of truth.
  */
 const store = new Map<string, Buffer>();
-const order: string[] = [];
 const MAX = 50;
 let seq = 0;
 
@@ -12,10 +11,7 @@ export function putBanner(png: Buffer): string {
   seq += 1;
   const id = String(seq);
   store.set(id, png);
-  order.push(id);
-  while (order.length > MAX) {
-    store.delete(order.shift()!);
-  }
+  if (store.size > MAX) store.delete(store.keys().next().value!);
   return id;
 }
 

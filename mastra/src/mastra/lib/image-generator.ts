@@ -21,8 +21,9 @@ function decode(b64: string | undefined): Buffer {
 }
 
 /** Real backend: OpenAI gpt-image-2 (text-to-image and image edit). The client is created lazily so no API key is needed until a call is made. */
-export function createOpenAIImageGenerator(client?: OpenAI): ImageGenerator {
+export function createOpenAIImageGenerator(): ImageGenerator {
   const model = 'gpt-image-2';
+  let client: OpenAI | undefined;
   const openai = () => (client ??= new OpenAI());
   return {
     async generate({ prompt, size }) {
