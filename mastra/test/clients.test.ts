@@ -4,11 +4,9 @@ import { defineClient } from '../src/mastra/clients/types';
 import { buildPrompt } from '../src/mastra/steps/generate-step';
 
 const minimalBrand = {
-  width: 100,
-  height: 100,
   background: '#000000',
-  headline: { font: 'Noto Sans JP', size: 10, color: '#ffffff', x: 0, y: 0, maxWidth: 100 },
-  cta: { font: 'Noto Sans JP', size: 10, color: '#ffffff', background: '#ffffff', x: 0, y: 0 },
+  headline: { font: 'Noto Sans JP', color: '#ffffff', maxSize: 48 },
+  cta: { font: 'Noto Sans JP', size: 24, color: '#ffffff', background: '#ffffff' },
 } as const;
 
 describe('client registry', () => {
@@ -41,19 +39,16 @@ describe('client config validation', () => {
 
   it('applies schema defaults', () => {
     const c = defineClient({ id: 'x', name: 'X', generate: true, overlay: false, brand: minimalBrand });
-    expect(c.brand.headline.weight).toBe(400);
-    expect(c.brand.headline.align).toBe('left');
+    expect(c.brand.headline.weight).toBe(700);
+    expect(c.brand.headline.minSize).toBe(24);
     expect(c.brand.cta.radius).toBe(0);
   });
 });
 
 describe('buildPrompt', () => {
-  it('forbids text when the client overlays', () => {
+  it('always forbids the model from drawing text', () => {
     expect(buildPrompt(getClient('aurora'))).toMatch(/Do not render any text/i);
-  });
-
-  it('does not forbid text when the client does not overlay', () => {
-    expect(buildPrompt(getClient('lumen'))).not.toMatch(/Do not render any text/i);
+    expect(buildPrompt(getClient('lumen'))).toMatch(/Do not render any text/i);
   });
 
   it('includes reference text when provided', () => {

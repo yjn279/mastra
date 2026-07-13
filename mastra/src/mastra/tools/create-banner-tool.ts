@@ -3,8 +3,10 @@ import { z } from 'zod';
 import { bannerWorkflow } from '../workflows/banner-workflow';
 import { putBanner } from '../lib/banner-store';
 import { listClients } from '../clients';
+import { listLayouts } from '../layouts';
 
 const clientIds = listClients().map((c) => c.id);
+const layoutNames = listLayouts().map((l) => l.name);
 
 /** Best-effort conversion of an attachment payload to raw base64. */
 function toBase64(value: unknown): string | undefined {
@@ -42,9 +44,14 @@ function extractMaterialImage(messages: unknown): string | undefined {
 
 export const createBannerTool = createTool({
   id: 'create-banner',
-  description: `Produce a brand-compliant marketing banner for a client (${clientIds.join(', ')}). Provide the clientId; when the client overlays text, also provide copy and cta. An image attached by the user is used automatically as material.`,
+  description: `Produce a brand-compliant marketing banner for a client (${clientIds.join(', ')}) in a chosen layout (${layoutNames.join(', ')}). Provide the clientId and layout; when the client overlays text, also provide copy and cta. An image attached by the user is used automatically as material.`,
   inputSchema: z.object({
     clientId: z.string().describe(`client id, one of: ${clientIds.join(', ')}`),
+    layout: z
+      .string()
+      .describe(
+        `layout, one of: ${layoutNames.join(', ')}. Use banner-image-left / banner-image-right for a wide product banner (product on that side, copy on the other); use kv for a square key visual (copy on top, product below).`,
+      ),
     copy: z.string().optional().describe('headline copy to overlay (when the client overlays text)'),
     cta: z.string().optional().describe('CTA button label (when the client overlays text)'),
     referenceText: z.string().optional().describe('optional style hints for image generation'),

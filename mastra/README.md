@@ -8,19 +8,26 @@
 Mastra Studio（チャット：画像添付 + 自然言語指示）
    │
  bannerAgent ── tool: create-banner ── bannerWorkflow（共通プロセス・1本）
-                                          ├─ generate: gpt-image-2 で背景生成（client で on/off）
-                                          └─ overlay : ブランド準拠で文字/CTA/ロゴを重ねる（on/off）
+                                          ├─ generate: gpt-image-2 で商品画像を生成（client で on/off）
+                                          └─ overlay : レイアウトに沿って画像とコピー/CTAを合成（on/off）
 ```
 
-全クライアントを**モード分岐なし**の 1 本の共通プロセスで処理する。各段はクライアント設定で on/off でき、その組合せだけで運用差（生成のみ / 生成+重ね / 重ねのみ）を吸収する。
+全クライアント・全パターンを**モード分岐なし**の 1 本の共通プロセスで処理する。各段はクライアント設定で on/off でき、その組合せだけで運用差（生成のみ / 生成+重ね / 重ねのみ）を吸収する。配置の違い（2パターン）は**レイアウトデータ**の違いだけで、コードは分岐しない。
 
-| generate | overlay | 重ねの土台画像 | 出力 |
+| generate | overlay | 画像領域に入る画像 | 出力 |
 | --- | --- | --- | --- |
-| on | on | 生成画像（文字なし・余白あり） | 重ね結果 |
+| on | on | 生成した商品画像 | レイアウト合成 |
 | on | off | — | 生成画像そのまま |
-| off | on | 素材画像 → 無ければブランド背景 | 重ね結果 |
+| off | on | 素材画像 → 無ければ空（ブランド背景） | レイアウト合成 |
 
 `generate` と `overlay` が両方 off の設定は不正（`clientConfigSchema` で拒否）。
+
+## レイアウト（2パターン）
+
+配置は**レイアウトプリセット**として持ち、指示に応じて選ぶ。ブランド仕様は「見た目」（フォント・色・サイズ・CTA・背景）だけを持ち、「配置」はレイアウトが持つ。重ね段は画像を `imageRegion` にはめ込み、コピー/CTA を `copyRegion` に自動フィットで配置する（同一コード・領域データ駆動）。
+
+- `banner-image-left` / `banner-image-right` — 横長 1536×1024。商品画像を左右どちらか（指示で決定）、反対側にコピー。
+- `kv` — 正方形 1024×1024。上にコピー、下に商品画像。
 
 ## ディレクトリ
 
@@ -29,18 +36,20 @@ src/mastra/
   agents/banner-agent.ts        最外殻 Agent（Studio のチャット面）
   tools/create-banner-tool.ts   Agent → Workflow ブリッジ。添付画像を素材として取り込み、結果を画像で返す
   workflows/banner-workflow.ts   共通プロセス generate → overlay
-  steps/generate-step.ts         背景生成 / パススルー、プロンプト生成（重ね時は「文字なし」を強制）
-  steps/overlay-step.ts          土台解決と決定的描画 / パススルー
+  steps/generate-step.ts         商品画像生成 / パススルー、プロンプト生成（「文字なし」を強制）
+  steps/overlay-step.ts          レイアウト合成 / パススルー
+  layouts/                       レイアウトプリセット（配置：領域・整列・生成サイズ）
   lib/image-generator.ts         gpt-image-2 ラッパ（インターフェース化、テストで差替）
-  lib/overlay-renderer.ts        @napi-rs/canvas による決定的描画エンジン
+  lib/overlay-renderer.ts        @napi-rs/canvas による決定的な領域合成エンジン（自動フィット文字）
+  lib/banner-store.ts            生成結果をメモリ保持し /banners/:id.png で配信
   lib/fonts.ts                   フォント登録
-  clients/                       クライアント設定レジストリ + ブランド仕様（zod）
+  clients/                       クライアント設定レジストリ + ブランド仕様（zod、見た目のみ）
   assets/fonts, assets/logos     ブランドフォント / ロゴ
 ```
 
 ## クライアント設定
 
-`clients/*.ts` で `defineClient()` により定義（zod で検証）。各クライアントは ①生成・重ねの on/off、②ブランド仕様（キャンバス・背景・見出し・CTA・ロゴ）を持つ。同梱の 3 件が 3 運用を代表する：
+`clients/*.ts` で `defineClient()` により定義（zod で検証）。各クライアントは ①生成・重ねの on/off、②ブランド仕様（背景・見出し・CTA・ロゴの見た目）を持つ。同梱の 3 件が 3 運用を代表する：
 
 - `aurora` — 生成 + 重ね
 - `lumen` — 生成のみ
@@ -54,7 +63,7 @@ src/mastra/
 
 ```shell
 npm run dev     # Mastra Studio: http://localhost:4111 の banner-agent とチャット
-npm test        # vitest（生成・重ねの各 on/off 組合せ、ブランド描画を網羅）
+npm test        # vitest（生成・重ねの各 on/off × レイアウト、領域合成・自動フィットを網羅）
 ```
 
 `.env` に `OPENAI_API_KEY` が必要（gpt-image-2 の生成、および Agent のチャットモデル）。重ねのみのクライアントは生成 API を呼ばない。

@@ -1,30 +1,24 @@
 import { defineClient } from './types';
 
-/** Generate + overlay: model paints a text-free background, brand copy is composited on top. */
+/** Generate + overlay: model paints a product shot, brand copy is composed beside/above it per layout. */
 export const aurora = defineClient({
   id: 'aurora',
   name: 'Aurora Skincare',
   generate: true,
   overlay: true,
   generation: {
-    size: '1024x1024',
     guidance:
-      'Soft, luminous skincare product photography on a pastel gradient background, airy and premium, generous empty space in the lower third.',
+      'Soft, luminous skincare product photography on a pastel gradient backdrop, airy and premium, subtle cherry blossoms.',
   },
   brand: {
-    width: 1024,
-    height: 1024,
     background: '#f3e9e1',
     headline: {
       font: 'Noto Sans JP',
-      size: 72,
-      weight: 700,
       color: '#2b2b2b',
+      weight: 700,
+      maxSize: 100,
+      minSize: 44,
       lineHeight: 1.25,
-      align: 'left',
-      x: 80,
-      y: 700,
-      maxWidth: 720,
     },
     cta: {
       font: 'Noto Sans JP',
@@ -35,8 +29,6 @@ export const aurora = defineClient({
       radius: 48,
       paddingX: 48,
       paddingY: 24,
-      x: 80,
-      y: 900,
     },
   },
 });

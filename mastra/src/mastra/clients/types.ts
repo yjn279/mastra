@@ -3,22 +3,19 @@ import { z } from 'zod';
 /** Hex color, `#rrggbb` or `#rrggbbaa`. */
 const hex = z.string().regex(/^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/, 'expected #rrggbb(aa) hex color');
 
-const align = z.enum(['left', 'center', 'right']);
-
-/** Headline / copy text style and layout box (top-left origin). */
-export const textStyleSchema = z.object({
+/** Headline styling. Position and size are resolved from the layout's copy region (auto-fit). */
+export const headlineStyleSchema = z.object({
   font: z.string(),
-  size: z.number().positive(),
-  weight: z.number().default(400),
   color: hex,
+  weight: z.number().default(700),
+  /** Upper bound for the auto-fit font size. */
+  maxSize: z.number().positive(),
+  /** Lower bound for the auto-fit font size. */
+  minSize: z.number().positive().default(24),
   lineHeight: z.number().positive().default(1.2),
-  align: align.default('left'),
-  x: z.number(),
-  y: z.number(),
-  maxWidth: z.number().positive(),
 });
 
-/** CTA button style; the box grows to fit its label from (x, y). */
+/** CTA button styling. The box grows to fit its label and is placed by the layout. */
 export const ctaStyleSchema = z.object({
   font: z.string(),
   size: z.number().positive(),
@@ -26,37 +23,30 @@ export const ctaStyleSchema = z.object({
   color: hex,
   background: hex,
   radius: z.number().nonnegative().default(0),
-  paddingX: z.number().nonnegative().default(24),
-  paddingY: z.number().nonnegative().default(12),
-  x: z.number(),
-  y: z.number(),
+  paddingX: z.number().nonnegative().default(32),
+  paddingY: z.number().nonnegative().default(18),
 });
 
 export const logoSchema = z.object({
   path: z.string(),
-  x: z.number(),
-  y: z.number(),
   width: z.number().positive(),
 });
 
-/** Brand drawing specification used by the overlay step. */
+/** Brand look: colors, fonts, sizes, CTA style, logo. No positioning — that is the layout's job. */
 export const brandSpecSchema = z.object({
-  width: z.number().positive(),
-  height: z.number().positive(),
-  /** Fallback background when there is no material or generated image. */
+  /** Fill for the whole canvas; the copy region sits on this, so it must contrast the headline color. */
   background: hex,
-  headline: textStyleSchema,
+  headline: headlineStyleSchema,
   cta: ctaStyleSchema,
   logo: logoSchema.optional(),
 });
 
 export const generationSchema = z.object({
-  size: z.enum(['1024x1024', '1536x1024', '1024x1536']).default('1024x1024'),
-  /** Style hints handed to the model (never text content). */
+  /** Style hints handed to the model (never text content, never composition — the layout owns that). */
   guidance: z.string().default(''),
 });
 
-/** A client's full configuration: the two on/off flags plus the brand spec. */
+/** A client's configuration: the two on/off flags plus the brand look. */
 export const clientConfigSchema = z
   .object({
     id: z.string(),
@@ -70,7 +60,7 @@ export const clientConfigSchema = z
     message: 'client must enable at least one of generate / overlay',
   });
 
-export type TextStyle = z.infer<typeof textStyleSchema>;
+export type HeadlineStyle = z.infer<typeof headlineStyleSchema>;
 export type CtaStyle = z.infer<typeof ctaStyleSchema>;
 export type Logo = z.infer<typeof logoSchema>;
 export type BrandSpec = z.infer<typeof brandSpecSchema>;

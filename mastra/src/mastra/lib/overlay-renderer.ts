@@ -1,6 +1,7 @@
-import { createCanvas, loadImage, type SKRSContext2D } from '@napi-rs/canvas';
+import { createCanvas, loadImage, type Image, type SKRSContext2D } from '@napi-rs/canvas';
 import { registerFonts } from './fonts';
-import type { BrandSpec, CtaStyle, TextStyle } from '../clients/types';
+import type { BrandSpec, CtaStyle, HeadlineStyle } from '../clients/types';
+import type { Layout, Region } from '../layouts/types';
 
 registerFonts();
 
@@ -76,14 +77,6 @@ export function sanitizeImage(buf: Buffer): Buffer {
   return Buffer.concat(chunks);
 }
 
-/** Draw an image scaled to cover the whole canvas (center-cropped). */
-function drawCover(ctx: SKRSContext2D, img: Awaited<ReturnType<typeof loadImage>>, w: number, h: number): void {
-  const scale = Math.max(w / img.width, h / img.height);
-  const dw = img.width * scale;
-  const dh = img.height * scale;
-  ctx.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
-}
-
 function roundRectPath(ctx: SKRSContext2D, x: number, y: number, w: number, h: number, r: number): void {
   const rr = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
@@ -95,60 +88,123 @@ function roundRectPath(ctx: SKRSContext2D, x: number, y: number, w: number, h: n
   ctx.closePath();
 }
 
-function drawHeadline(ctx: SKRSContext2D, style: TextStyle, copy: string): void {
-  ctx.font = font(style);
-  ctx.fillStyle = style.color;
-  ctx.textBaseline = 'top';
-  ctx.textAlign = style.align;
-  const anchorX =
-    style.align === 'left' ? style.x : style.align === 'center' ? style.x + style.maxWidth / 2 : style.x + style.maxWidth;
-  const lines = wrapText((s) => ctx.measureText(s).width, copy, style.maxWidth);
-  const step = style.size * style.lineHeight;
-  lines.forEach((line, i) => ctx.fillText(line, anchorX, style.y + i * step));
+/** Draw an image scaled to cover a region (center-cropped, clipped to the region). */
+function drawImageCover(ctx: SKRSContext2D, img: Image, region: Region): void {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(region.x, region.y, region.width, region.height);
+  ctx.clip();
+  const scale = Math.max(region.width / img.width, region.height / img.height);
+  const dw = img.width * scale;
+  const dh = img.height * scale;
+  ctx.drawImage(img, region.x + (region.width - dw) / 2, region.y + (region.height - dh) / 2, dw, dh);
+  ctx.restore();
 }
 
-function drawCta(ctx: SKRSContext2D, style: CtaStyle, label: string): void {
-  ctx.font = font(style);
-  const textWidth = ctx.measureText(label).width;
-  const boxW = textWidth + style.paddingX * 2;
-  const boxH = style.size + style.paddingY * 2;
-  ctx.fillStyle = style.background;
-  roundRectPath(ctx, style.x, style.y, boxW, boxH, style.radius);
-  ctx.fill();
-  ctx.fillStyle = style.color;
-  ctx.textBaseline = 'middle';
-  ctx.textAlign = 'center';
-  ctx.fillText(label, style.x + boxW / 2, style.y + boxH / 2);
+const HEADLINE_CTA_GAP = 40;
+
+/** The largest headline size within [minSize, maxSize] whose wrapped lines fit the region. */
+function fitHeadline(
+  ctx: SKRSContext2D,
+  style: HeadlineStyle,
+  copy: string,
+  region: Region,
+  reservedHeight: number,
+): { size: number; lines: string[] } {
+  for (let size = style.maxSize; size >= style.minSize; size -= 2) {
+    ctx.font = font({ weight: style.weight, size, font: style.font });
+    const lines = wrapText((s) => ctx.measureText(s).width, copy, region.width);
+    const height = lines.length * size * style.lineHeight;
+    if (height + reservedHeight <= region.height) return { size, lines };
+  }
+  ctx.font = font({ weight: style.weight, size: style.minSize, font: style.font });
+  return { size: style.minSize, lines: wrapText((s) => ctx.measureText(s).width, copy, region.width) };
+}
+
+/** Draw the headline and CTA as a vertically-centered, aligned block inside the region. */
+function drawCopyBlock(
+  ctx: SKRSContext2D,
+  region: Region,
+  align: Layout['align'],
+  headline: HeadlineStyle,
+  ctaStyle: CtaStyle,
+  copy: string | undefined,
+  cta: string | undefined,
+): void {
+  let ctaBoxW = 0;
+  let ctaBoxH = 0;
+  if (cta) {
+    ctx.font = font(ctaStyle);
+    ctaBoxW = ctx.measureText(cta).width + ctaStyle.paddingX * 2;
+    ctaBoxH = ctaStyle.size + ctaStyle.paddingY * 2;
+  }
+  const gap = copy && cta ? HEADLINE_CTA_GAP : 0;
+
+  const fit = copy ? fitHeadline(ctx, headline, copy, region, gap + ctaBoxH) : { size: 0, lines: [] as string[] };
+  const headlineH = fit.lines.length * fit.size * headline.lineHeight;
+  const blockH = headlineH + gap + ctaBoxH;
+
+  const anchorX = align === 'center' ? region.x + region.width / 2 : region.x;
+  let y = region.y + Math.max(0, (region.height - blockH) / 2);
+
+  if (copy) {
+    ctx.font = font({ weight: headline.weight, size: fit.size, font: headline.font });
+    ctx.fillStyle = headline.color;
+    ctx.textBaseline = 'top';
+    ctx.textAlign = align;
+    fit.lines.forEach((line, i) => ctx.fillText(line, anchorX, y + i * fit.size * headline.lineHeight));
+    y += headlineH + gap;
+  }
+
+  if (cta) {
+    const boxX = align === 'center' ? region.x + (region.width - ctaBoxW) / 2 : region.x;
+    ctx.fillStyle = ctaStyle.background;
+    roundRectPath(ctx, boxX, y, ctaBoxW, ctaBoxH, ctaStyle.radius);
+    ctx.fill();
+    ctx.fillStyle = ctaStyle.color;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'center';
+    ctx.font = font(ctaStyle);
+    ctx.fillText(cta, boxX + ctaBoxW / 2, y + ctaBoxH / 2);
+  }
 }
 
 export interface OverlayInput {
-  /** Base image to draw under the text, or null to use the brand background. */
+  /** Product image placed in the layout's image region, or null to leave the brand background. */
   base: Buffer | null;
   brand: BrandSpec;
+  layout: Layout;
   copy?: string;
   cta?: string;
 }
 
-/** Deterministically composite brand copy, CTA and logo onto a base image. */
-export async function renderOverlay({ base, brand, copy, cta }: OverlayInput): Promise<Buffer> {
-  const canvas = createCanvas(brand.width, brand.height);
+/**
+ * Deterministically compose a banner: fill the brand background, place the
+ * product image in the image region, and lay out the copy and CTA in the copy
+ * region. The layout supplies all positioning, so every pattern uses this path.
+ */
+export async function renderOverlay({ base, brand, layout, copy, cta }: OverlayInput): Promise<Buffer> {
+  const canvas = createCanvas(layout.width, layout.height);
   const ctx = canvas.getContext('2d');
 
+  ctx.fillStyle = brand.background;
+  ctx.fillRect(0, 0, layout.width, layout.height);
+
   if (base) {
-    drawCover(ctx, await loadImage(sanitizeImage(base)), brand.width, brand.height);
-  } else {
-    ctx.fillStyle = brand.background;
-    ctx.fillRect(0, 0, brand.width, brand.height);
+    drawImageCover(ctx, await loadImage(sanitizeImage(base)), layout.imageRegion);
   }
 
+  let copyRegion = layout.copyRegion;
   if (brand.logo) {
     const logo = await loadImage(brand.logo.path);
-    const height = logo.height * (brand.logo.width / logo.width);
-    ctx.drawImage(logo, brand.logo.x, brand.logo.y, brand.logo.width, height);
+    const logoHeight = logo.height * (brand.logo.width / logo.width);
+    const logoX = layout.align === 'center' ? copyRegion.x + (copyRegion.width - brand.logo.width) / 2 : copyRegion.x;
+    ctx.drawImage(logo, logoX, copyRegion.y, brand.logo.width, logoHeight);
+    const shift = logoHeight + 24;
+    copyRegion = { ...copyRegion, y: copyRegion.y + shift, height: copyRegion.height - shift };
   }
 
-  if (copy) drawHeadline(ctx, brand.headline, copy);
-  if (cta) drawCta(ctx, brand.cta, cta);
+  if (copy || cta) drawCopyBlock(ctx, copyRegion, layout.align, brand.headline, brand.cta, copy, cta);
 
   return canvas.toBuffer('image/png');
 }

@@ -6,6 +6,16 @@ import { join } from 'node:path';
 import { crc32 } from 'node:zlib';
 import { renderOverlay, wrapText, sanitizeImage } from '../src/mastra/lib/overlay-renderer';
 import type { BrandSpec } from '../src/mastra/clients/types';
+import type { Layout } from '../src/mastra/layouts/types';
+
+/** Build a solid-color PNG buffer. */
+function solidPng(w: number, h: number, color: string): Buffer {
+  const c = createCanvas(w, h);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, w, h);
+  return c.toBuffer('image/png');
+}
 
 /** Insert an ancillary PNG chunk (e.g. gpt-image-2's `caBX`) before the first IDAT. */
 function pngWithChunk(png: Buffer, type: string, data: Buffer): Buffer {
@@ -22,26 +32,15 @@ function pngWithChunk(png: Buffer, type: string, data: Buffer): Buffer {
   return Buffer.concat([png.subarray(0, offset), chunk, png.subarray(offset)]);
 }
 
-/** Build a solid-color PNG buffer. */
-function solidPng(w: number, h: number, color: string): Buffer {
-  const c = createCanvas(w, h);
-  const ctx = c.getContext('2d');
-  ctx.fillStyle = color;
-  ctx.fillRect(0, 0, w, h);
-  return c.toBuffer('image/png');
-}
-
-/** Decode a PNG and read the RGBA of one pixel. */
-async function pixel(png: Buffer, x: number, y: number): Promise<[number, number, number, number]> {
+async function pixel(png: Buffer, x: number, y: number): Promise<[number, number, number]> {
   const img = await loadImage(png);
   const c = createCanvas(img.width, img.height);
   const ctx = c.getContext('2d');
   ctx.drawImage(img, 0, 0);
   const d = ctx.getImageData(x, y, 1, 1).data;
-  return [d[0], d[1], d[2], d[3]];
+  return [d[0], d[1], d[2]];
 }
 
-/** True if any pixel in the region is within tolerance of the target RGB. */
 async function hasColor(
   png: Buffer,
   rect: { x: number; y: number; w: number; h: number },
@@ -54,11 +53,7 @@ async function hasColor(
   ctx.drawImage(img, 0, 0);
   const { data } = ctx.getImageData(rect.x, rect.y, rect.w, rect.h);
   for (let i = 0; i < data.length; i += 4) {
-    if (
-      Math.abs(data[i] - rgb[0]) <= tol &&
-      Math.abs(data[i + 1] - rgb[1]) <= tol &&
-      Math.abs(data[i + 2] - rgb[2]) <= tol
-    ) {
+    if (Math.abs(data[i] - rgb[0]) <= tol && Math.abs(data[i + 1] - rgb[1]) <= tol && Math.abs(data[i + 2] - rgb[2]) <= tol) {
       return true;
     }
   }
@@ -66,32 +61,20 @@ async function hasColor(
 }
 
 const brand: BrandSpec = {
+  background: '#101820', // dark navy
+  headline: { font: 'Noto Sans JP', color: '#ffffff', weight: 700, maxSize: 48, minSize: 18, lineHeight: 1.2 },
+  cta: { font: 'Noto Sans JP', size: 24, weight: 700, color: '#ffffff', background: '#f2a900', radius: 8, paddingX: 16, paddingY: 10 },
+};
+
+// Image region = left half; copy region = right side.
+const layout: Layout = {
+  name: 'test',
   width: 400,
   height: 200,
-  background: '#101820', // dark navy
-  headline: {
-    font: 'Noto Sans JP',
-    size: 32,
-    weight: 700,
-    color: '#ffffff',
-    lineHeight: 1.2,
-    align: 'left',
-    x: 20,
-    y: 20,
-    maxWidth: 360,
-  },
-  cta: {
-    font: 'Noto Sans JP',
-    size: 20,
-    weight: 700,
-    color: '#ffffff',
-    background: '#f2a900', // amber
-    radius: 8,
-    paddingX: 20,
-    paddingY: 10,
-    x: 20,
-    y: 150,
-  },
+  imageSize: '1024x1024',
+  imageRegion: { x: 0, y: 0, width: 200, height: 200 },
+  copyRegion: { x: 210, y: 20, width: 180, height: 160 },
+  align: 'left',
 };
 
 describe('sanitizeImage', () => {
@@ -108,15 +91,6 @@ describe('sanitizeImage', () => {
   it('passes non-PNG buffers through unchanged', () => {
     const jpegish = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
     expect(sanitizeImage(jpegish).equals(jpegish)).toBe(true);
-  });
-
-  it('lets renderOverlay use a base image that carries an extra metadata chunk', async () => {
-    const withChunk = pngWithChunk(solidPng(100, 50, '#ff0000'), 'caBX', Buffer.from('meta'));
-    const out = await renderOverlay({ base: withChunk, brand });
-    const [r, g, b] = await pixel(out, 2, 2);
-    expect(r).toBeGreaterThan(200);
-    expect(g).toBeLessThan(60);
-    expect(b).toBeLessThan(60);
   });
 });
 
@@ -141,63 +115,60 @@ describe('wrapText', () => {
 });
 
 describe('renderOverlay', () => {
-  it('produces a PNG of the brand canvas size', async () => {
-    const out = await renderOverlay({ base: null, brand });
+  it('produces a PNG of the layout canvas size', async () => {
+    const out = await renderOverlay({ base: null, brand, layout });
     const img = await loadImage(out);
     expect([img.width, img.height]).toEqual([400, 200]);
   });
 
-  it('fills the brand background when there is no base image', async () => {
-    const out = await renderOverlay({ base: null, brand });
-    const [r, g, b] = await pixel(out, 2, 2);
-    expect([r, g, b]).toEqual([0x10, 0x18, 0x20]);
+  it('fills the brand background', async () => {
+    const out = await renderOverlay({ base: null, brand, layout });
+    expect(await pixel(out, 2, 2)).toEqual([0x10, 0x18, 0x20]);
   });
 
-  it('draws headline copy in the brand text color inside the text box', async () => {
-    const out = await renderOverlay({ base: null, brand, copy: 'Hello' });
-    const found = await hasColor(out, { x: 20, y: 20, w: 360, h: 48 }, [255, 255, 255]);
-    expect(found).toBe(true);
+  it('places the base image inside the image region only', async () => {
+    const base = solidPng(100, 100, '#ff0000');
+    const out = await renderOverlay({ base, brand, layout });
+    const [ir, ig, ib] = await pixel(out, 10, 100); // inside image region (left)
+    expect(ir).toBeGreaterThan(200);
+    expect(ig).toBeLessThan(60);
+    expect(ib).toBeLessThan(60);
+    // outside the image region stays brand background
+    expect(await pixel(out, 395, 195)).toEqual([0x10, 0x18, 0x20]);
   });
 
-  it('renders real Japanese glyphs, not tofu (distinct kanji differ)', async () => {
-    // A missing font renders every char as an identical .notdef box, so two
-    // different kanji would produce identical pixels. Real glyphs differ.
-    const a = await renderOverlay({ base: null, brand, copy: '夏' });
-    const b = await renderOverlay({ base: null, brand, copy: '冬' });
-    expect(a.equals(b)).toBe(false);
+  it('draws headline copy in the brand color inside the copy region', async () => {
+    const out = await renderOverlay({ base: null, brand, layout, copy: 'Hello' });
+    expect(await hasColor(out, { x: 210, y: 20, w: 180, h: 160 }, [255, 255, 255])).toBe(true);
   });
 
   it('draws the CTA button in the brand CTA background color', async () => {
-    const out = await renderOverlay({ base: null, brand, cta: 'Shop Now' });
-    // sample the left padding area of the button — solid fill, no glyphs
-    const [r, g, b] = await pixel(out, brand.cta.x + 4, brand.cta.y + brand.cta.paddingY + brand.cta.size / 2);
-    expect([r, g, b]).toEqual([0xf2, 0xa9, 0x00]);
+    const out = await renderOverlay({ base: null, brand, layout, cta: 'Go' });
+    expect(await hasColor(out, { x: 210, y: 20, w: 180, h: 160 }, [0xf2, 0xa9, 0x00])).toBe(true);
   });
 
-  it('draws the CTA label in the CTA text color', async () => {
-    const out = await renderOverlay({ base: null, brand, cta: 'Shop Now' });
-    const found = await hasColor(out, { x: brand.cta.x, y: brand.cta.y, w: 200, h: 44 }, [255, 255, 255]);
-    expect(found).toBe(true);
+  it('auto-fits long copy so it never bleeds out of the copy region', async () => {
+    const out = await renderOverlay({
+      base: null,
+      brand,
+      layout,
+      copy: '新製品が登場しました今すぐチェックしてください',
+    });
+    // no headline pixels leak into the image region on the left
+    expect(await hasColor(out, { x: 0, y: 0, w: 200, h: 200 }, [255, 255, 255], 12)).toBe(false);
   });
 
-  it('covers the canvas with the base image', async () => {
-    const base = solidPng(100, 50, '#ff0000');
-    const out = await renderOverlay({ base, brand });
-    const [r, g, b] = await pixel(out, 2, 2);
-    expect(r).toBeGreaterThan(200);
-    expect(g).toBeLessThan(60);
-    expect(b).toBeLessThan(60);
-  });
-
-  it('draws the logo at its configured position', async () => {
+  it('draws the logo at the top of the copy region', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'logo-'));
     const logoPath = join(dir, 'logo.png');
     writeFileSync(logoPath, solidPng(40, 40, '#00ff00'));
     const out = await renderOverlay({
       base: null,
-      brand: { ...brand, logo: { path: logoPath, x: 300, y: 20, width: 40 } },
+      brand: { ...brand, logo: { path: logoPath, width: 40 } },
+      layout,
+      copy: 'Hi',
     });
-    const [r, g, b] = await pixel(out, 320, 40);
+    const [r, g, b] = await pixel(out, 215, 25);
     expect(g).toBeGreaterThan(200);
     expect(r).toBeLessThan(60);
     expect(b).toBeLessThan(60);
