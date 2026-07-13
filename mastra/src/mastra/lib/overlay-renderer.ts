@@ -54,6 +54,28 @@ function font(style: { weight: number; size: number; font: string }): string {
   return `${style.weight} ${style.size}px "${style.font}"`;
 }
 
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const KEPT_PNG_CHUNKS = new Set(['IHDR', 'PLTE', 'IDAT', 'IEND', 'tRNS']);
+
+/**
+ * Drop non-essential PNG chunks. gpt-image-2 embeds a `caBX` (C2PA provenance)
+ * chunk that @napi-rs/canvas cannot decode; keeping only the pixel-critical
+ * chunks yields a PNG the renderer can load. Non-PNG buffers pass through.
+ */
+export function sanitizeImage(buf: Buffer): Buffer {
+  if (buf.length < 8 || !buf.subarray(0, 8).equals(PNG_SIGNATURE)) return buf;
+  const chunks: Buffer[] = [buf.subarray(0, 8)];
+  let offset = 8;
+  while (offset + 12 <= buf.length) {
+    const length = buf.readUInt32BE(offset);
+    const type = buf.toString('latin1', offset + 4, offset + 8);
+    const end = offset + 12 + length;
+    if (KEPT_PNG_CHUNKS.has(type)) chunks.push(buf.subarray(offset, end));
+    offset = end;
+  }
+  return Buffer.concat(chunks);
+}
+
 /** Draw an image scaled to cover the whole canvas (center-cropped). */
 function drawCover(ctx: SKRSContext2D, img: Awaited<ReturnType<typeof loadImage>>, w: number, h: number): void {
   const scale = Math.max(w / img.width, h / img.height);
@@ -113,7 +135,7 @@ export async function renderOverlay({ base, brand, copy, cta }: OverlayInput): P
   const ctx = canvas.getContext('2d');
 
   if (base) {
-    drawCover(ctx, await loadImage(base), brand.width, brand.height);
+    drawCover(ctx, await loadImage(sanitizeImage(base)), brand.width, brand.height);
   } else {
     ctx.fillStyle = brand.background;
     ctx.fillRect(0, 0, brand.width, brand.height);

@@ -1,10 +1,26 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { createCanvas, loadImage } from '@napi-rs/canvas';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { renderOverlay, wrapText } from '../src/mastra/lib/overlay-renderer';
+import { crc32 } from 'node:zlib';
+import { renderOverlay, wrapText, sanitizeImage } from '../src/mastra/lib/overlay-renderer';
 import type { BrandSpec } from '../src/mastra/clients/types';
+
+/** Insert an ancillary PNG chunk (e.g. gpt-image-2's `caBX`) before the first IDAT. */
+function pngWithChunk(png: Buffer, type: string, data: Buffer): Buffer {
+  let offset = 8;
+  while (offset + 12 <= png.length && png.toString('latin1', offset + 4, offset + 8) !== 'IDAT') {
+    offset += 12 + png.readUInt32BE(offset);
+  }
+  const len = Buffer.alloc(4);
+  len.writeUInt32BE(data.length);
+  const typeBuf = Buffer.from(type, 'latin1');
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(Buffer.concat([typeBuf, data])) >>> 0);
+  const chunk = Buffer.concat([len, typeBuf, data, crc]);
+  return Buffer.concat([png.subarray(0, offset), chunk, png.subarray(offset)]);
+}
 
 /** Build a solid-color PNG buffer. */
 function solidPng(w: number, h: number, color: string): Buffer {
@@ -77,6 +93,32 @@ const brand: BrandSpec = {
     y: 150,
   },
 };
+
+describe('sanitizeImage', () => {
+  it('strips non-essential PNG chunks so the image stays loadable', async () => {
+    const withChunk = pngWithChunk(solidPng(64, 64, '#123456'), 'caBX', Buffer.from('fake-c2pa-metadata'));
+    expect(withChunk.includes(Buffer.from('caBX'))).toBe(true);
+
+    const clean = sanitizeImage(withChunk);
+    expect(clean.includes(Buffer.from('caBX'))).toBe(false);
+    const img = await loadImage(clean);
+    expect([img.width, img.height]).toEqual([64, 64]);
+  });
+
+  it('passes non-PNG buffers through unchanged', () => {
+    const jpegish = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+    expect(sanitizeImage(jpegish).equals(jpegish)).toBe(true);
+  });
+
+  it('lets renderOverlay use a base image that carries an extra metadata chunk', async () => {
+    const withChunk = pngWithChunk(solidPng(100, 50, '#ff0000'), 'caBX', Buffer.from('meta'));
+    const out = await renderOverlay({ base: withChunk, brand });
+    const [r, g, b] = await pixel(out, 2, 2);
+    expect(r).toBeGreaterThan(200);
+    expect(g).toBeLessThan(60);
+    expect(b).toBeLessThan(60);
+  });
+});
 
 describe('wrapText', () => {
   const measure = (s: string) => [...s].length * 10; // 10px per char
