@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getClient } from '../clients';
 import { getLayout } from '../layouts';
 import type { ClientConfig } from '../clients/types';
+import type { Layout } from '../layouts/types';
 import type { ImageGenerator } from '../lib/image-generator';
 
 /** Workflow input: client, layout, the copy/CTA to lay out, and an optional material image. */
@@ -25,13 +26,15 @@ export const flowSchema = z.object({
   imageBase64: z.string().nullable(),
 });
 
-/** Build the model prompt. The model paints a product shot only — never text. */
-export function buildPrompt(client: ClientConfig, referenceText?: string): string {
+/**
+ * Build the model prompt. The model paints a product photo only — never text.
+ * When the banner overlays copy, the layout's placement reserves clean space for it.
+ */
+export function buildPrompt(client: ClientConfig, layout: Layout, referenceText?: string): string {
   const parts = [client.generation?.guidance || `Marketing product photograph for ${client.name}.`];
   if (referenceText) parts.push(referenceText);
-  parts.push(
-    'A clean, well-composed product photograph that fills the frame. Do not render any text, letters, words, numbers or logos.',
-  );
+  parts.push(client.overlay ? layout.placement : 'A clean, well-composed product photograph that fills the frame.');
+  parts.push('Do not render any text, letters, words, numbers or logos.');
   return parts.join(' ');
 }
 
@@ -54,8 +57,9 @@ export function createGenerateStep(generator: ImageGenerator) {
         return { ...passthrough, imageBase64: inputData.materialImageBase64 ?? null };
       }
 
-      const size = getLayout(inputData.layout).imageSize;
-      const prompt = buildPrompt(client, inputData.referenceText);
+      const layout = getLayout(inputData.layout);
+      const prompt = buildPrompt(client, layout, inputData.referenceText);
+      const size = layout.imageSize;
       const image = inputData.materialImageBase64
         ? await generator.edit({ prompt, size, image: Buffer.from(inputData.materialImageBase64, 'base64') })
         : await generator.generate({ prompt, size });

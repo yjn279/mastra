@@ -9,20 +9,26 @@ export const regionSchema = z.object({
 });
 
 /**
- * Positioning for one banner pattern. The product image fills `imageRegion`;
- * the copy and CTA are placed inside `copyRegion`. Both banner patterns and the
- * square KV are just different values here — the renderer reads them the same way.
+ * Positioning for one banner pattern. The generated/material image fills the
+ * whole canvas; the copy is overlaid on `copyRegion` (a clean area the model is
+ * told to leave empty) and the CTA, when the pattern uses one, on `ctaRegion`.
+ * Both banner patterns and the square KV are just different values here — the
+ * renderer and the generation prompt read them the same way, no branching.
  */
 export const layoutSchema = z.object({
   name: z.string(),
   width: z.number().positive(),
   height: z.number().positive(),
-  /** gpt-image-2 size for the product shot that fills the image region. */
+  /** gpt-image-2 size for the full-canvas image (matches the canvas aspect). */
   imageSize: z.enum(['1024x1024', '1536x1024', '1024x1536']),
-  imageRegion: regionSchema,
+  /** Where the headline copy is overlaid. */
   copyRegion: regionSchema,
-  /** Horizontal alignment of the copy/CTA block within the copy region. */
+  /** Where the CTA button is overlaid; omit for patterns without a CTA. */
+  ctaRegion: regionSchema.optional(),
+  /** Horizontal alignment of the overlaid copy / CTA. */
   align: z.enum(['left', 'center']).default('left'),
+  /** Generation guidance: where the product goes and which area to leave clean. */
+  placement: z.string(),
 });
 
 export type Region = z.infer<typeof regionSchema>;

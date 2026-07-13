@@ -101,76 +101,53 @@ function drawImageCover(ctx: SKRSContext2D, img: Image, region: Region): void {
   ctx.restore();
 }
 
-const HEADLINE_CTA_GAP = 40;
-
-/** The largest headline size within [minSize, maxSize] whose wrapped lines fit the region. */
+/** The largest headline size within [minSize, maxSize] whose wrapped lines fit the region height. */
 function fitHeadline(
   ctx: SKRSContext2D,
   style: HeadlineStyle,
   copy: string,
   region: Region,
-  reservedHeight: number,
 ): { size: number; lines: string[] } {
   for (let size = style.maxSize; size >= style.minSize; size -= 2) {
     ctx.font = font({ weight: style.weight, size, font: style.font });
     const lines = wrapText((s) => ctx.measureText(s).width, copy, region.width);
-    const height = lines.length * size * style.lineHeight;
-    if (height + reservedHeight <= region.height) return { size, lines };
+    if (lines.length * size * style.lineHeight <= region.height) return { size, lines };
   }
   ctx.font = font({ weight: style.weight, size: style.minSize, font: style.font });
   return { size: style.minSize, lines: wrapText((s) => ctx.measureText(s).width, copy, region.width) };
 }
 
-/** Draw the headline and CTA as a vertically-centered, aligned block inside the region. */
-function drawCopyBlock(
-  ctx: SKRSContext2D,
-  region: Region,
-  align: Layout['align'],
-  headline: HeadlineStyle,
-  ctaStyle: CtaStyle,
-  copy: string | undefined,
-  cta: string | undefined,
-): void {
-  let ctaBoxW = 0;
-  let ctaBoxH = 0;
-  if (cta) {
-    ctx.font = font(ctaStyle);
-    ctaBoxW = ctx.measureText(cta).width + ctaStyle.paddingX * 2;
-    ctaBoxH = ctaStyle.size + ctaStyle.paddingY * 2;
-  }
-  const gap = copy && cta ? HEADLINE_CTA_GAP : 0;
-
-  const fit = copy ? fitHeadline(ctx, headline, copy, region, gap + ctaBoxH) : { size: 0, lines: [] as string[] };
-  const headlineH = fit.lines.length * fit.size * headline.lineHeight;
-  const blockH = headlineH + gap + ctaBoxH;
-
+/** Draw the headline, auto-fit and vertically centered, aligned inside the region. */
+function drawHeadline(ctx: SKRSContext2D, region: Region, align: Layout['align'], style: HeadlineStyle, copy: string): void {
+  const { size, lines } = fitHeadline(ctx, style, copy, region);
+  const blockH = lines.length * size * style.lineHeight;
   const anchorX = align === 'center' ? region.x + region.width / 2 : region.x;
-  let y = region.y + Math.max(0, (region.height - blockH) / 2);
+  const top = region.y + Math.max(0, (region.height - blockH) / 2);
+  ctx.font = font({ weight: style.weight, size, font: style.font });
+  ctx.fillStyle = style.color;
+  ctx.textBaseline = 'top';
+  ctx.textAlign = align;
+  lines.forEach((line, i) => ctx.fillText(line, anchorX, top + i * size * style.lineHeight));
+}
 
-  if (copy) {
-    ctx.font = font({ weight: headline.weight, size: fit.size, font: headline.font });
-    ctx.fillStyle = headline.color;
-    ctx.textBaseline = 'top';
-    ctx.textAlign = align;
-    fit.lines.forEach((line, i) => ctx.fillText(line, anchorX, y + i * fit.size * headline.lineHeight));
-    y += headlineH + gap;
-  }
-
-  if (cta) {
-    const boxX = align === 'center' ? region.x + (region.width - ctaBoxW) / 2 : region.x;
-    ctx.fillStyle = ctaStyle.background;
-    roundRectPath(ctx, boxX, y, ctaBoxW, ctaBoxH, ctaStyle.radius);
-    ctx.fill();
-    ctx.fillStyle = ctaStyle.color;
-    ctx.textBaseline = 'middle';
-    ctx.textAlign = 'center';
-    ctx.font = font(ctaStyle);
-    ctx.fillText(cta, boxX + ctaBoxW / 2, y + ctaBoxH / 2);
-  }
+/** Draw the CTA button, centered vertically and aligned inside the region. */
+function drawCta(ctx: SKRSContext2D, region: Region, align: Layout['align'], style: CtaStyle, label: string): void {
+  ctx.font = font(style);
+  const boxW = ctx.measureText(label).width + style.paddingX * 2;
+  const boxH = style.size + style.paddingY * 2;
+  const boxX = align === 'center' ? region.x + (region.width - boxW) / 2 : region.x;
+  const boxY = region.y + Math.max(0, (region.height - boxH) / 2);
+  ctx.fillStyle = style.background;
+  roundRectPath(ctx, boxX, boxY, boxW, boxH, style.radius);
+  ctx.fill();
+  ctx.fillStyle = style.color;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'center';
+  ctx.fillText(label, boxX + boxW / 2, boxY + boxH / 2);
 }
 
 export interface OverlayInput {
-  /** Product image placed in the layout's image region, or null to leave the brand background. */
+  /** Image that fills the whole canvas (generated or material), or null to leave the brand background. */
   base: Buffer | null;
   brand: BrandSpec;
   layout: Layout;
@@ -179,9 +156,10 @@ export interface OverlayInput {
 }
 
 /**
- * Deterministically compose a banner: fill the brand background, place the
- * product image in the image region, and lay out the copy and CTA in the copy
- * region. The layout supplies all positioning, so every pattern uses this path.
+ * Deterministically compose a banner: the image fills the canvas, and the copy
+ * (and CTA, when the pattern uses one) is overlaid on the clean regions the
+ * layout designates. The layout supplies all positioning, so every pattern uses
+ * this path.
  */
 export async function renderOverlay({ base, brand, layout, copy, cta }: OverlayInput): Promise<Buffer> {
   const canvas = createCanvas(layout.width, layout.height);
@@ -191,20 +169,11 @@ export async function renderOverlay({ base, brand, layout, copy, cta }: OverlayI
   ctx.fillRect(0, 0, layout.width, layout.height);
 
   if (base) {
-    drawImageCover(ctx, await loadImage(sanitizeImage(base)), layout.imageRegion);
+    drawImageCover(ctx, await loadImage(sanitizeImage(base)), { x: 0, y: 0, width: layout.width, height: layout.height });
   }
 
-  let copyRegion = layout.copyRegion;
-  if (brand.logo) {
-    const logo = await loadImage(brand.logo.path);
-    const logoHeight = logo.height * (brand.logo.width / logo.width);
-    const logoX = layout.align === 'center' ? copyRegion.x + (copyRegion.width - brand.logo.width) / 2 : copyRegion.x;
-    ctx.drawImage(logo, logoX, copyRegion.y, brand.logo.width, logoHeight);
-    const shift = logoHeight + 24;
-    copyRegion = { ...copyRegion, y: copyRegion.y + shift, height: copyRegion.height - shift };
-  }
-
-  if (copy || cta) drawCopyBlock(ctx, copyRegion, layout.align, brand.headline, brand.cta, copy, cta);
+  if (copy) drawHeadline(ctx, layout.copyRegion, layout.align, brand.headline, copy);
+  if (cta && layout.ctaRegion) drawCta(ctx, layout.ctaRegion, layout.align, brand.cta, cta);
 
   return canvas.toBuffer('image/png');
 }

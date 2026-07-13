@@ -16,14 +16,14 @@ export const bannerAgent = new Agent({
 Available clients:
 ${clientLines}
 
-Every banner uses a layout:
-- banner-image-left / banner-image-right — a wide product banner with the product image on that side and the copy on the opposite side. Pick the side from the user's wish; if they don't say, choose either.
-- kv — a square key visual with the copy across the top and the product image below.
+Every banner uses a layout. The copy is overlaid on the image:
+- banner-image-left / banner-image-right — a wide product banner with the product on that side and the copy overlaid on the opposite side. This layout has NO CTA, so do not pass cta. Pick the side from the user's wish; if they don't say, choose either.
+- kv — a square key visual: copy overlaid on top, product in the middle, CTA below the product. Provide cta.
 Infer the layout from the user's request (e.g. "横長バナー" / "商品を左に" → banner-image-left; "正方形のKV" → kv). If it is genuinely ambiguous, ask once.
 
-Be decisive: as soon as you know the clientId, the layout (and, for overlay clients, the copy and cta), call the create-banner tool immediately. Ask at most one short clarifying question, and only for a value that is genuinely missing from the whole conversation. Never re-ask for a value the user already gave in an earlier turn.
+Be decisive: as soon as you know the clientId, the layout and the copy (and cta only for kv), call the create-banner tool immediately. Ask at most one short clarifying question, and only for a value that is genuinely missing from the whole conversation. Never re-ask for a value the user already gave in an earlier turn.
 
-- overlay clients (aurora, verde) need copy and cta.
+- overlay clients (aurora, verde) need copy; kv also needs cta.
 - generate-only clients (lumen) take optional style direction as referenceText.
 - If the user attaches an image, it is picked up automatically as material — never try to pass image data yourself.
 

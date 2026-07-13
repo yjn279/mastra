@@ -27,18 +27,12 @@ export const ctaStyleSchema = z.object({
   paddingY: z.number().nonnegative().default(18),
 });
 
-export const logoSchema = z.object({
-  path: z.string(),
-  width: z.number().positive(),
-});
-
-/** Brand look: colors, fonts, sizes, CTA style, logo. No positioning — that is the layout's job. */
+/** Brand look: colors, fonts, sizes, CTA style. No positioning — that is the layout's job. */
 export const brandSpecSchema = z.object({
-  /** Fill for the whole canvas; the copy region sits on this, so it must contrast the headline color. */
+  /** Shown only where the image does not cover the canvas; must contrast the headline color. */
   background: hex,
   headline: headlineStyleSchema,
   cta: ctaStyleSchema,
-  logo: logoSchema.optional(),
 });
 
 export const generationSchema = z.object({
@@ -62,7 +56,6 @@ export const clientConfigSchema = z
 
 export type HeadlineStyle = z.infer<typeof headlineStyleSchema>;
 export type CtaStyle = z.infer<typeof ctaStyleSchema>;
-export type Logo = z.infer<typeof logoSchema>;
 export type BrandSpec = z.infer<typeof brandSpecSchema>;
 export type ClientConfig = z.infer<typeof clientConfigSchema>;
 

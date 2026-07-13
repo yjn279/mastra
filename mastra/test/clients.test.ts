@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { getClient, listClients } from '../src/mastra/clients';
 import { defineClient } from '../src/mastra/clients/types';
+import { getLayout } from '../src/mastra/layouts';
 import { buildPrompt } from '../src/mastra/steps/generate-step';
 
 const minimalBrand = {
@@ -8,6 +9,8 @@ const minimalBrand = {
   headline: { font: 'Noto Sans JP', color: '#ffffff', maxSize: 48 },
   cta: { font: 'Noto Sans JP', size: 24, color: '#ffffff', background: '#ffffff' },
 } as const;
+
+const bannerLeft = getLayout('banner-image-left');
 
 describe('client registry', () => {
   it('seeds the three run modes', () => {
@@ -47,11 +50,21 @@ describe('client config validation', () => {
 
 describe('buildPrompt', () => {
   it('always forbids the model from drawing text', () => {
-    expect(buildPrompt(getClient('aurora'))).toMatch(/Do not render any text/i);
-    expect(buildPrompt(getClient('lumen'))).toMatch(/Do not render any text/i);
+    expect(buildPrompt(getClient('aurora'), bannerLeft)).toMatch(/Do not render any text/i);
+    expect(buildPrompt(getClient('lumen'), bannerLeft)).toMatch(/Do not render any text/i);
+  });
+
+  it('reserves clean space via the layout placement when the client overlays', () => {
+    expect(buildPrompt(getClient('aurora'), bannerLeft)).toMatch(/LEFT/);
+  });
+
+  it('asks for a full-frame shot (no reserved space) when the client only generates', () => {
+    const prompt = buildPrompt(getClient('lumen'), bannerLeft);
+    expect(prompt).toMatch(/fills the frame/i);
+    expect(prompt).not.toMatch(/LEFT/);
   });
 
   it('includes reference text when provided', () => {
-    expect(buildPrompt(getClient('lumen'), 'autumn campaign')).toMatch(/autumn campaign/);
+    expect(buildPrompt(getClient('lumen'), bannerLeft, 'autumn campaign')).toMatch(/autumn campaign/);
   });
 });

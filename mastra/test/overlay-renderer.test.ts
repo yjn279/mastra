@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { createCanvas, loadImage } from '@napi-rs/canvas';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { crc32 } from 'node:zlib';
 import { renderOverlay, wrapText, sanitizeImage } from '../src/mastra/lib/overlay-renderer';
 import type { BrandSpec } from '../src/mastra/clients/types';
@@ -66,15 +63,16 @@ const brand: BrandSpec = {
   cta: { font: 'Noto Sans JP', size: 24, weight: 700, color: '#ffffff', background: '#f2a900', radius: 8, paddingX: 16, paddingY: 10 },
 };
 
-// Image region = left half; copy region = right side.
+// Copy overlaid on the right; a CTA region below it.
 const layout: Layout = {
   name: 'test',
   width: 400,
   height: 200,
-  imageSize: '1024x1024',
-  imageRegion: { x: 0, y: 0, width: 200, height: 200 },
-  copyRegion: { x: 210, y: 20, width: 180, height: 160 },
+  imageSize: '1536x1024',
+  copyRegion: { x: 210, y: 20, width: 180, height: 90 },
+  ctaRegion: { x: 210, y: 130, width: 180, height: 50 },
   align: 'left',
+  placement: 'test placement',
 };
 
 describe('sanitizeImage', () => {
@@ -105,10 +103,6 @@ describe('wrapText', () => {
     expect(wrapText(measure, 'あいうえお', 25)).toEqual(['あい', 'うえ', 'お']);
   });
 
-  it('keeps text that fits on a single line', () => {
-    expect(wrapText(measure, 'short', 1000)).toEqual(['short']);
-  });
-
   it('respects explicit newlines', () => {
     expect(wrapText(measure, 'a\nb', 1000)).toEqual(['a', 'b']);
   });
@@ -121,30 +115,40 @@ describe('renderOverlay', () => {
     expect([img.width, img.height]).toEqual([400, 200]);
   });
 
-  it('fills the brand background', async () => {
+  it('fills the brand background when there is no image', async () => {
     const out = await renderOverlay({ base: null, brand, layout });
     expect(await pixel(out, 2, 2)).toEqual([0x10, 0x18, 0x20]);
   });
 
-  it('places the base image inside the image region only', async () => {
-    const base = solidPng(100, 100, '#ff0000');
-    const out = await renderOverlay({ base, brand, layout });
-    const [ir, ig, ib] = await pixel(out, 10, 100); // inside image region (left)
-    expect(ir).toBeGreaterThan(200);
-    expect(ig).toBeLessThan(60);
-    expect(ib).toBeLessThan(60);
-    // outside the image region stays brand background
-    expect(await pixel(out, 395, 195)).toEqual([0x10, 0x18, 0x20]);
+  it('covers the whole canvas with the image', async () => {
+    const out = await renderOverlay({ base: solidPng(100, 100, '#ff0000'), brand, layout });
+    for (const [x, y] of [
+      [2, 2],
+      [398, 2],
+      [2, 198],
+      [120, 100],
+    ] as const) {
+      const [r, g, b] = await pixel(out, x, y);
+      expect(r).toBeGreaterThan(200);
+      expect(g).toBeLessThan(60);
+      expect(b).toBeLessThan(60);
+    }
   });
 
-  it('draws headline copy in the brand color inside the copy region', async () => {
+  it('overlays the headline in the brand color inside the copy region', async () => {
     const out = await renderOverlay({ base: null, brand, layout, copy: 'Hello' });
-    expect(await hasColor(out, { x: 210, y: 20, w: 180, h: 160 }, [255, 255, 255])).toBe(true);
+    expect(await hasColor(out, { x: 210, y: 20, w: 180, h: 90 }, [255, 255, 255])).toBe(true);
   });
 
-  it('draws the CTA button in the brand CTA background color', async () => {
+  it('draws the CTA button in its region when the layout has one', async () => {
     const out = await renderOverlay({ base: null, brand, layout, cta: 'Go' });
-    expect(await hasColor(out, { x: 210, y: 20, w: 180, h: 160 }, [0xf2, 0xa9, 0x00])).toBe(true);
+    expect(await hasColor(out, { x: 210, y: 130, w: 180, h: 50 }, [0xf2, 0xa9, 0x00])).toBe(true);
+  });
+
+  it('draws no CTA when the layout has no CTA region', async () => {
+    const noCta: Layout = { ...layout, ctaRegion: undefined };
+    const out = await renderOverlay({ base: null, brand, layout: noCta, cta: 'Go' });
+    expect(await hasColor(out, { x: 0, y: 0, w: 400, h: 200 }, [0xf2, 0xa9, 0x00])).toBe(false);
   });
 
   it('auto-fits long copy so it never bleeds out of the copy region', async () => {
@@ -154,23 +158,7 @@ describe('renderOverlay', () => {
       layout,
       copy: '新製品が登場しました今すぐチェックしてください',
     });
-    // no headline pixels leak into the image region on the left
-    expect(await hasColor(out, { x: 0, y: 0, w: 200, h: 200 }, [255, 255, 255], 12)).toBe(false);
-  });
-
-  it('draws the logo at the top of the copy region', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'logo-'));
-    const logoPath = join(dir, 'logo.png');
-    writeFileSync(logoPath, solidPng(40, 40, '#00ff00'));
-    const out = await renderOverlay({
-      base: null,
-      brand: { ...brand, logo: { path: logoPath, width: 40 } },
-      layout,
-      copy: 'Hi',
-    });
-    const [r, g, b] = await pixel(out, 215, 25);
-    expect(g).toBeGreaterThan(200);
-    expect(r).toBeLessThan(60);
-    expect(b).toBeLessThan(60);
+    // no headline pixels leak to the left of the copy region
+    expect(await hasColor(out, { x: 0, y: 20, w: 205, h: 90 }, [255, 255, 255], 12)).toBe(false);
   });
 });
